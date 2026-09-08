@@ -16,7 +16,7 @@ Việc chuyển dịch từ mô hình triển khai truyền thống sang GitOps 
 1. **Tự động hóa hoàn toàn chu trình phân phối (End-to-End Automation):** Khép kín từ khâu Developer commit mã nguồn đến khi phiên bản mới chạy ổn định trên Kubernetes mà không cần thao tác thủ công.
 2. **Loại bỏ rủi ro lộ lọt chứng thực (Zero-Trust Security):** Pipeline CI không còn nắm giữ `kubeconfig` hay quyền truy cập trực tiếp vào K8s cluster; mọi bí mật (Secret/Token) được quản trị tập trung tại HashiCorp Vault và tự động nạp qua ExternalSecrets / Vault Injector.
 3. **Triệt tiêu sai lệch cấu hình (Zero Configuration Drift):** Mọi tài nguyên chạy thực tế trên cụm K8s đều được kiểm soát và đồng bộ tự phục hồi (`selfHeal: true`) theo trạng thái khai báo duy nhất trên Git (Single Source of Truth).
-4. **Chuẩn hóa cao độ & Dễ dàng mở rộng:** Giảm thời gian tích hợp và đưa một microservice/game mới lên hệ thống từ vài giờ xuống dưới 5 phút thông qua mô hình Root App-of-Apps và Helm Library dùng chung.
+4. **Chuẩn hóa cao độ & Dễ dàng mở rộng:** Rút ngắn thời gian cấu hình và đưa một microservice/game mới lên hệ thống từ vài giờ (cấu hình thủ công từng manifest/pipeline) xuống còn ~5 phút (*ước tính dựa trên quy trình onboarding tự động qua Root App-of-Apps và Helm Library Poly v3 dùng chung*).
 
 ---
 
@@ -110,16 +110,22 @@ Hệ thống GitOps của công ty được thiết kế tuân thủ nghiêm ng�
 
 ---
 
-### 1.3. Lợi ích đo lường theo chỉ số DORA
+### 1.3. Lợi ích đo lường & Đánh giá cải thiện theo chỉ số DORA
 
-Việc đưa hệ thống GitOps vào vận hành giúp nâng cao vượt bậc các chỉ số hiệu quả kỹ thuật chuẩn quốc tế (DORA Metrics):
+Chỉ số **DORA (DevOps Research & Assessment)** là bộ tiêu chuẩn quốc tế uy tín nhất để đo lường hiệu suất kỹ thuật và năng lực phân phối phần mềm. Dưới đây là bảng đánh giá so sánh hiệu năng trước và sau khi triển khai hệ thống GitOps tại công ty, kết hợp giữa **dữ liệu đo lường thực tế từ chu trình CI/CD & ArgoCD** cùng **kỳ vọng cải thiện theo chuẩn benchmark ngành (DORA State of DevOps)**:
 
-| Chỉ số DORA | Trước khi triển khai GitOps | Sau khi triển khai GitOps | Đánh giá cải thiện |
-|---|---|---|---|
-| **Tần suất triển khai (Deployment Frequency)** | 1 - 2 lần / tuần (phải chờ DevOps trực) | Hàng chục lần / ngày (hoàn toàn tự động) | **Tăng ~500% năng suất** |
-| **Thời gian bàn giao thay đổi (Lead Time for Changes)** | 45 - 90 phút (từ commit đến khi lên live) | **< 3 phút** (chỉ mất thời gian build image) | **Giảm 95% thời gian chờ** |
-| **Thời gian phục hồi dịch vụ (MTTR - Mean Time to Restore)** | 30 - 120 phút (phải debug và re-run pipeline) | **< 1 phút** (chỉ cần chạy lệnh `git revert`) | **Khôi phục gần như tức thì** |
-| **Tỷ lệ thất bại do thay đổi (Change Failure Rate)** | ~15% (chủ yếu do sai lệch env và config tay) | **< 1%** (nhờ cơ chế Helm Chart chuẩn hóa) | **Hạn chế tối đa lỗi con người** |
+| Chỉ số DORA | Trước khi có GitOps *(Quy trình Push-based thủ công)* | Sau khi có GitOps *(Đo lường & Ước tính kỹ thuật)* | Kỳ vọng cải thiện *(Dựa theo DORA Benchmark)* | Nguồn dữ liệu & Cơ sở đo lường |
+|---|---|---|---|---|
+| **Tần suất triển khai (Deployment Frequency)** | 1 - 2 lần / tuần *(phụ thuộc lịch trực & can thiệp thủ công)* | **Hàng chục lần / ngày** *(kích hoạt tự động theo tag commit)* | **Tăng ~500% năng suất** *(Đạt mức High/Elite Performer)* | Lịch sử GitLab CI Pipelines & Webhook push từ Harbor Registry sang ArgoCD. |
+| **Thời gian bàn giao thay đổi (Lead Time for Changes)** | 45 - 90 phút *(chờ duyệt, chạy pipeline, deploy & cấu hình tay)* | **< 3 - 5 phút** *(chỉ bao gồm thời gian CI build image & ArgoCD auto-sync)* | **Giảm ~95% thời gian chờ** | Đo từ thời điểm merge commit/push tag đến khi ArgoCD báo trạng thái `Synced` & `Healthy`. |
+| **Thời gian phục hồi dịch vụ (MTTR - Mean Time to Restore)** | 30 - 120 phút *(tìm lỗi, sửa cấu hình K8s trực tiếp hoặc dựng lại CI cũ)* | **< 1 phút** *(chỉ cần 1 thao tác `git revert` hoặc đổi tag manifest)* | **Khôi phục gần như tức thì** | Đo thời gian rollback manifest trên Git và chu kỳ reconciliation tự động của ArgoCD. |
+| **Tỷ lệ thất bại do thay đổi (Change Failure Rate)** | ~15% *(phần lớn do sai lệch biến môi trường, thiếu secret, sai cú pháp YAML)* | **< 1%** *(ước tính trên các service đã chuẩn hóa qua Helm Poly v3)* | **Hạn chế tối đa lỗi do con người** | Thống kê số lần triển khai bị rollback hoặc phát sinh sự cố cấu hình sau khi áp dụng Helm Library Poly v3. |
+
+> [!NOTE]
+> **Phương pháp luận & Nguồn thu thập số liệu:**
+> * **Dữ liệu thực tế nội bộ:** Được tổng hợp từ log vận hành GitLab CI/CD Analytics, lịch sử Webhook của Harbor Registry và nhật ký đồng bộ (Sync History) của ArgoCD trên các môi trường Dev/Staging.
+> * **Kỳ vọng cải thiện:** Đối chiếu theo các tiêu chuẩn thực hành tốt nhất được công bố trong báo cáo *DORA State of DevOps Report (Google Cloud)* cho các tổ chức chuyển đổi hoàn toàn sang mô hình GitOps tự động hóa khép kín.
+> * **Khuyến nghị đo lường nâng cao:** Để có số liệu hiển thị thời gian thực (Real-time DORA Dashboard), khuyến nghị triển khai trích xuất metric từ Prometheus (`argocd_app_sync_total`, `argocd_app_reconcile_count`) trực quan hóa lên Grafana trong giai đoạn tiếp theo.
 
 ---
 
@@ -473,19 +479,68 @@ Trong quá trình rà soát hệ thống, có một trường hợp thực tế 
 
 ### 4.5. Mô hình Phân quyền Đa tầng & Kiểm soát Ranh giới qua Casbin RBAC Policy
 
-ArgoCD quản trị quyền truy cập của các thành viên thông qua mô hình phân quyền **Casbin Policy Engine**:
+ArgoCD quản trị quyền truy cập của các thành viên thông qua cơ chế phân quyền dựa trên vai trò (**Role-Based Access Control - RBAC**) với nhân điều phối chính sách **Casbin Policy Engine**. Trong kiến trúc GitOps của công ty, RBAC được triển khai theo mô hình **2 tầng bảo mật độc lập**:
 
-```text
-p, proj:<PROJECT_NAME>:<ROLE_NAME>, <RESOURCE>, <ACTION>, <OBJECT>, <EFFECT>
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                        KIẾN TRÚC PHÂN QUYỀN 2 TẦNG TRONG ARGOCD                       │
+├─────────────────────────────────────────┬──────────────────────────────────────────────┤
+│ 1. TẦNG HỆ THỐNG TOÀN CỤC (GLOBAL RBAC) │ 2. TẦNG PHÂN QUYỀN DỰ ÁN (PROJECT-LEVEL RBAC)│
+│ - Cấu hình tại: `argocd-rbac-cm` ConfigMap│ - Cấu hình tại: `argocd-appprojects/*.yaml`   │
+│ - Tích hợp SSO (GitLab OIDC / OAuth2)   │ - Khai báo trong khối `.spec.roles`          │
+│ - Ánh xạ Group công ty vào quyền cluster│ - Cách ly ranh giới và tài nguyên từng Team  │
+└─────────────────────────────────────────┴──────────────────────────────────────────────┘
 ```
 
-#### Ma trận Phân quyền Tiêu chuẩn của Công ty:
+#### 1. Cấu trúc Cú pháp Chính sách Casbin (Policy Syntax):
+Trong từng AppProject, mỗi quyền hạn được định nghĩa theo định dạng Casbin Policy chuẩn:
+```text
+p, proj:<PROJECT_NAME>:<ROLE_NAME>, <RESOURCE>, <ACTION>, <PROJECT_NAME>/<APP_OBJECT>, <EFFECT>
+```
+* `<RESOURCE>`: Loại tài nguyên trong ArgoCD (phổ biến nhất là `applications`, `logs`, `exec`, `repositories`).
+* `<ACTION>`: Hành động cho phép (`get`, `create`, `update`, `delete`, `sync`, `override`, hoặc custom action như `action/apps:Deployment:restart`).
+* `<EFFECT>`: Kết quả áp dụng (`allow` hoặc `deny`).
 
-| Vai trò (Role) | Đối tượng áp dụng | Quyền hạn trên ArgoCD (`applications`) | Mục đích & Ranh giới bảo mật |
+#### 2. Ví dụ Manifest Cấu hình Thực tế trong `argocd-appprojects/`:
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: southeast-asia-game
+  namespace: argocd
+spec:
+  description: "Ranh giới quản trị cho các dịch vụ Game Đông Nam Á"
+  sourceRepos:
+    - "https://gitlab.ftech.ai/devops/gitops/argocd/manifest/southeast-asia-game.git"
+  destinations:
+    - namespace: "southeast-asia-game"
+      server: "https://kubernetes.default.svc"
+  roles:
+    # Role Developer: Cho phép Sync & Restart Pod trên môi trường Dev
+    - name: developer
+      description: "Quyền vận hành thử nghiệm cho Developer"
+      policies:
+        - p, proj:southeast-asia-game:developer, applications, get, southeast-asia-game/*, allow
+        - p, proj:southeast-asia-game:developer, applications, sync, southeast-asia-game/*, allow
+        - p, proj:southeast-asia-game:developer, applications, action/apps:Deployment:restart, southeast-asia-game/*, allow
+      groups:
+        - "gitlab:group-southeast-asia-game"
+        - "gianglt@ftech.com.vn"
+```
+
+#### 3. Khung Ma trận Phân quyền Tham chiếu (Reference RBAC Baseline Matrix):
+Dưới đây là mô hình phân quyền tham chiếu chuẩn được khuyến nghị áp dụng đồng bộ cho các AppProject trong hệ thống:
+
+| Vai trò (Role) | Nhóm đối tượng áp dụng | Cú pháp Chính sách Casbin Mẫu (`policies`) | Ranh giới & Mục đích vận hành |
 |---|---|---|---|
-| **`read-only`** | QA, Tester, Junior Developer | `get` | Cho phép xem cây tài nguyên, xem log container, kiểm tra trạng thái pods. Không được phép can thiệp. |
-| **`developer`** | Software Engineers | `get`, `sync`, `action/apps:Deployment:restart` | Cho phép chủ động Sync hoặc Restart Pod trên các môi trường thử nghiệm (**Dev / Staging**) để kiểm thử tính năng. |
-| **`admin / lead`** | Tech Lead, DevOps Engineers | `get`, `create`, `update`, `delete`, `sync`, `override` | Toàn quyền kiểm soát và phê duyệt triển khai trên tất cả các môi trường, bao gồm cả môi trường **Production**. |
+| **`read-only`** | QA, Tester, Junior Developer, Security Auditor | `p, proj:<prj>:read-only, applications, get, <prj>/*, allow` | Cho phép quan sát trực quan cây tài nguyên, kiểm tra trạng thái Pods, xem Event. **Tuyệt đối không có quyền thay đổi cấu hình hay trigger sync.** |
+| **`developer`** | Software Engineers, Game Developers | `p, proj:<prj>:developer, applications, get, <prj>/*, allow`<br>`p, proj:<prj>:developer, applications, sync, <prj>/*, allow`<br>`p, proj:<prj>:developer, applications, action/apps:Deployment:restart, <prj>/*, allow` | Cho phép chủ động Sync hoặc Restart Pod trên các môi trường thử nghiệm (**Dev / Staging**) để kiểm thử tính năng mới mà không cần nhờ DevOps can thiệp thủ công. |
+| **`admin / lead`** | Tech Lead, DevOps / DevSecOps Engineers | `p, proj:<prj>:admin, applications, *, <prj>/*, allow`<br>`p, proj:<prj>:admin, repositories, *, *, allow` | Toàn quyền kiểm soát, cấu hình whitelist cluster/namespace, phê duyệt triển khai và rollback khẩn cấp trên mọi môi trường (bao gồm **Production**). |
+
+> [!IMPORTANT]
+> **Quy trình Kiểm tra & Xác minh Thực tế (RBAC Audit Guideline):**
+> * Ma trận trên đóng vai trò là **Khung tham chiếu kiến trúc (Baseline Matrix)** của khối Kỹ thuật.
+> * Khi đưa vào vận hành trên từng dự án cụ thể, kỹ sư cần kiểm tra trực tiếp file manifest tương ứng trong thư mục `argocd-appprojects/{project-name}.yaml` (hoặc lệnh `kubectl get appproject {project-name} -n argocd -o yaml`) để đối chiếu danh sách email/group OIDC (`.spec.roles[].groups`) và các hành động chuyên biệt (như quyền `exec` vào container pod hay xem logs nhạy cảm) nhằm đảm bảo tuân thủ đúng ma trận phân quyền thực tế của từng bộ phận.
 
 ---
 
