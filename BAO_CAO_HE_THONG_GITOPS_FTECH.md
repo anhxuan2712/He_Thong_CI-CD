@@ -1,400 +1,146 @@
-# BÁO CÁO KỸ THUẬT: NGHIÊN CỨU VÀ ĐÁNH GIÁ HỆ THỐNG GITOPS (ARGOCD)
-**Cơ quan/Đơn vị:** Phòng Công nghệ / Khối Kỹ thuật & Hạ tầng DevSecOps  
-**Dự án:** Chuẩn hóa Kiến trúc Triển khai Ứng dụng & Quản trị Vận hành Tự động hóa GitOps trên nền tảng Kubernetes  
-**Người thực hiện:** Kỹ sư Vận hành & Phát triển Hệ thống (DevOps/SRE)  
-**Thời gian hoàn thành:** Ngày 08 tháng 09 năm 2026  
-
----
-
-## TÓM LƯỢC ĐIỀU HÀNH (EXECUTIVE SUMMARY)
-
-Báo cáo này trình bày kết quả nghiên cứu toàn diện về kiến trúc, quy trình vận hành và cơ chế bảo mật của hệ thống **GitOps (dựa trên nền tảng ArgoCD, HashiCorp Vault, Harbor và Kubernetes)** đang được áp dụng tại công ty.
-
-Hệ thống GitOps của chúng ta được thiết kế theo mô hình **Phân tầng hướng mô-đun (Hierarchical Modular GitOps)** kết hợp kiến trúc **App-of-Apps**, quản trị bí mật theo tiêu chuẩn **Zero-Secret in Git** và chuẩn hóa gói manifest ứng dụng qua **Helm Chart Poly v3**. 
-
-Việc chuyển dịch từ mô hình triển khai truyền thống sang GitOps đã mang lại các cải tiến vượt bậc:
-1. **Tự động hóa hoàn toàn chu trình phân phối (End-to-End Automation):** Khép kín từ khâu Developer commit mã nguồn đến khi phiên bản mới chạy ổn định trên Kubernetes mà không cần thao tác thủ công.
-2. **Loại bỏ rủi ro lộ lọt chứng thực (Zero-Trust Security):** Pipeline CI không còn nắm giữ `kubeconfig` hay quyền truy cập trực tiếp vào K8s cluster; mọi bí mật (Secret/Token) được quản trị tập trung tại HashiCorp Vault và tự động nạp qua ExternalSecrets / Vault Injector.
-3. **Triệt tiêu sai lệch cấu hình (Zero Configuration Drift):** Mọi tài nguyên chạy thực tế trên cụm K8s đều được kiểm soát và đồng bộ tự phục hồi (`selfHeal: true`) theo trạng thái khai báo duy nhất trên Git (Single Source of Truth).
-4. **Chuẩn hóa cao độ & Dễ dàng mở rộng:** Rút ngắn thời gian cấu hình và đưa một microservice/game mới lên hệ thống từ vài giờ (cấu hình thủ công từng manifest/pipeline) xuống còn ~5 phút (*ước tính dựa trên quy trình onboarding tự động qua Root App-of-Apps và Helm Library Poly v3 dùng chung*).
-
----
-
-## MỤC LỤC CHI TIẾT
-
-1. **CHƯƠNG I: TỔNG QUAN, BỐI CẢNH & NGUYÊN LÝ CỐT LÕI CỦA GITOPS**
-   - 1.1. Bối cảnh chuyển đổi & Giới hạn của mô hình CI/CD truyền thống (Push-based)
-   - 1.2. 4 Nguyên tắc cốt lõi theo tiêu chuẩn OpenGitOps
-   - 1.3. Lợi ích đo lường theo chỉ số DORA (DevOps Research & Assessment)
-2. **CHƯƠNG II: KIẾN TRÚC TỔNG THỂ & QUY TRÌNH PHÁT HÀNH TỰ ĐỘNG (CI/CD $\rightarrow$ GITOPS)**
-   - 2.1. Sơ đồ chu trình phát hành khép kín (End-to-End Workflow)
-   - 2.2. Phân tích chuyên sâu 6 giai đoạn trong vòng đời phát hành
-   - 2.3. Cơ chế tự động bắt tag và ghi phiên bản (`argocd-image-updater`)
-3. **CHƯƠNG III: THIẾT KẾ PHÂN TẦNG HỆ THỐNG ARGOCD & QUẢN TRỊ DỰ ÁN**
-   - 3.1. Luồng 1: Quản trị Vòng đời Ứng dụng & Phân quyền RBAC (Application Stream)
-   - 3.2. Luồng 2: Quản trị Hạ tầng Nền tảng & Cấp phát Chứng thực (Infrastructure Stream)
-   - 3.3. Cơ chế tự động phát hiện và kích hoạt ứng dụng (App-of-Apps & Recursive Discovery)
-   - 3.4. Chiến lược tách biệt Repository & Chuẩn hóa Manifest với Helm Chart Poly v3
-4. **CHƯƠNG IV: QUẢN TRỊ BẢO MẬT & CHIẾN LƯỢC "ZERO-SECRET IN GIT"**
-   - 4.1. Phân biệt bản chất 2 tầng Secret trong hệ thống: `regcred` vs `vault`
-   - 4.2. Cơ chế cấp phát Image Pull Secret tự động qua External Secrets Operator
-   - 4.3. Cơ chế Inject Secret động cấp Pod qua HashiCorp Vault Agent Injector
-   - 4.4. Phân tích ca sử dụng thực tế: WebGL Static Game vs Backend Microservice
-   - 4.5. Mô hình phân quyền đa tầng và kiểm soát ranh giới qua Casbin RBAC Policy
-5. **CHƯƠNG V: ĐÁNH GIÁ HIỆU NĂNG, RỦI RO VẬN HÀNH & ĐỀ XUẤT TỐI ƯU HÓA**
-   - 5.1. Bảng so sánh định lượng: CI/CD truyền thống vs Hệ thống GitOps hiện tại
-   - 5.2. Nhận diện các điểm nghẽn và rủi ro tiềm ẩn trong vận hành
-   - 5.3. Đề xuất 3 sáng kiến nâng cấp hệ thống trong giai đoạn tiếp theo
-6. **KẾT LUẬN & KIẾN NGHỊ**
-
----
-
-# NỘI DUNG BÁO CÁO CHI TIẾT
+# MÔ HÌNH VÀ KIẾN TRÚC VẬN HÀNH GITOPS (ARGOCD)
 
 ---
 
 ## CHƯƠNG I: TỔNG QUAN, BỐI CẢNH & NGUYÊN LÝ CỐT LÕI CỦA GITOPS
 
-### 1.1. Bối cảnh chuyển đổi & Giới hạn của mô hình CI/CD truyền thống (Push-based)
+### 1.1. Bối cảnh chuyển đổi: Push-based CI/CD vs Pull-based GitOps
 
-Trước khi triển khai hệ thống GitOps, quy trình triển khai phần mềm sử dụng mô hình **Push-based CI/CD**. Trong mô hình này, máy chủ CI (GitLab Runner / Jenkins) thực hiện toàn bộ các bước từ build, test cho đến trực tiếp kết nối vào cụm Kubernetes thông qua lệnh `kubectl apply` hoặc `helm upgrade`.
+Trước khi áp dụng GitOps, quy trình triển khai phần mềm sử dụng mô hình **Push-based CI/CD**:
+* Máy chủ CI (GitLab Runner / Jenkins) trực tiếp nắm giữ `kubeconfig` có quyền cao (`cluster-admin`) để chạy lệnh `kubectl apply` hoặc `helm upgrade`.
+* **Rủi ro lớn:** Nếu pipeline bị tấn công, toàn bộ cụm K8s có nguy cơ bị xâm nhập. Khi xảy ra sự cố, kỹ sư sửa tay (`kubectl edit`) trực tiếp trên cluster gây ra hiện tượng **Lệch cấu hình (Configuration Drift)**, mất dấu vết kiểm toán và gây khó khăn lớn khi cần phục hồi thảm họa (Disaster Recovery).
+
+**Giải pháp với mô hình Pull-based GitOps:**
+Chuyển toàn bộ quyền thực thi vào bên trong cụm Kubernetes. Một Controller nội bộ (**ArgoCD**) đóng vai trò giám sát thường trực: lấy Git làm quy chuẩn duy nhất và tự động kéo (Pull) trạng thái mong muốn về áp dụng cho cụm.
 
 ```
 [MÔ HÌNH CŨ: PUSH-BASED]
 Developer ──► GitLab CI ──(Nắm giữ Kubeconfig)──► Chọc thẳng vào K8s Cluster
-                                                   ❌ Nguy cơ lộ Token / Kubeconfig
-                                                   ❌ Lệch cấu hình nếu sửa tay trực tiếp
-```
+                                                   ❌ Nguy cơ lộ Kubeconfig / Lệch cấu hình
 
-**Những hạn chế nghiêm trọng của mô hình Push-based:**
-* **Nguy cơ bảo mật nghiêm trọng (Security Exposure):** Kubeconfig với quyền cao (thường là `cluster-admin`) phải lưu trên biến môi trường (CI/CD Variables). Nếu pipeline bị tấn công hoặc log bị rò rỉ, toàn bộ hạ tầng K8s có nguy cơ bị chiếm quyền.
-* **Hiện tượng lệch cấu hình (Configuration Drift):** Khi xảy ra sự cố khẩn cấp (Incident), kỹ sư thường dùng lệnh `kubectl edit` hoặc `kubectl patch` trực tiếp trên cụm để sửa nhanh. Sau khi sự cố qua đi, cấu hình này không được commit ngược lại Git, dẫn đến việc lần deploy tiếp theo của CI sẽ ghi đè và làm hỏng hệ thống.
-* **Mất dấu vết kiểm toán (Auditability & Compliance):** Khó xác định chính xác ai đã thay đổi thông số RAM, CPU hay biến môi trường nào vào thời điểm nào nếu không có lịch sử commit tương ứng trên Git.
-* **Khó khăn khi phục hồi thảm họa (Disaster Recovery):** Nếu cụm K8s gặp sự cố sập hoàn toàn, việc tái tạo lại chính xác trạng thái của hàng trăm microservice từ các pipeline CI phân tán là cực kỳ phức tạp và mất nhiều thời gian.
-
-**Giải pháp với GitOps (Pull-based Delivery):**
-Chuyển đổi toàn bộ quyền thực thi triển khai vào bên trong cụm Kubernetes. Một Controller nội bộ (**ArgoCD**) hoạt động thường trực, đóng vai trò là cơ quan giám sát liên tục: lấy Git làm quy chuẩn duy nhất và kéo trạng thái mong muốn về áp dụng cho cụm.
-
-```
 [MÔ HÌNH MỚI: PULL-BASED GITOPS]
 Developer ──► GitLab CI ──► Harbor Registry ──► Git Manifest ◄──(Kéo tự động)── ArgoCD (Trong K8s)
              (Không cần quyền K8s)                            │                     │
                                                               └────── Sync & Heal ──┘
 ```
 
----
-
 ### 1.2. 4 Nguyên tắc cốt lõi theo tiêu chuẩn OpenGitOps
 
-Hệ thống GitOps của công ty được thiết kế tuân thủ nghiêm ngặt 4 nguyên tắc nền tảng của tổ chức **OpenGitOps (CNCF)**:
-
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                4 NGUYÊN TẮC OPENGITOPS                                 │
-├────────────────────────────┬────────────────────────────┬──────────────────────────────┤
-│ 1. Khai báo tường minh     │ 2. Quản lý phiên bản       │ 3. Kéo tự động               │
-│    (Declarative)           │    (Versioned & Immutable) │    (Pulled Automatically)    │
-│ Toàn bộ hạ tầng & app định │ Git là nguồn chân lý duy   │ Agent K8s tự động kéo cấu    │
-│ nghĩa bằng YAML/Helm.      │ nhất (Single Source of     │ hình, CI runner không cần    │
-│                            │ Truth), có lịch sử rõ ràng.│ quyền cluster.               │
-├────────────────────────────┴────────────────────────────┴──────────────────────────────┤
-│ 4. Tự đối soát & Phục hồi liên tục (Continuously Reconciled & Self-Healing)            │
-│    Hệ thống tự động phát hiện sai lệch (Drift) và tự động kéo về đúng trạng thái Git. │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-1. **Declarative (Khai báo tường minh):** Toàn bộ trạng thái mong muốn của hệ thống (Số lượng Replicas, Ingress Domain, Giới hạn CPU/RAM, Secret Path, Autoscaling) đều được mô tả dưới dạng mã nguồn (Code/YAML/Helm Values).
-2. **Versioned and Immutable (Phiên bản hóa & Bất biến):** Mọi thay đổi đều bắt buộc thông qua Git Commit / Pull Request. Toàn bộ lịch sử thay đổi đều có chữ ký, tác giả, lý do và có thể truy vết tức thì.
-3. **Pulled Automatically (Kéo và áp dụng tự động):** Các phần mềm điều phối (ArgoCD Controllers) chạy bên trong mạng nội bộ của cluster, tự động kéo các thay đổi được duyệt trên Git về thực thi.
-4. **Continuously Reconciled (Tự phục hồi và đối soát liên tục):** ArgoCD chạy vòng lặp kiểm tra liên tục (Reconciliation Loop). Khi có bất kỳ sự thay đổi trái phép nào can thiệp trực tiếp vào cụm qua CLI, ArgoCD sẽ coi đó là sai lệch (**OutOfSync**) và tự động ghi đè lại trạng thái chuẩn theo Git (**Self-Heal**).
+1. **Khai báo tường minh (Declarative):** Toàn bộ trạng thái mong muốn của hệ thống (Deployments, Services, Ingress, HPA, Config) đều được định nghĩa bằng mã nguồn (YAML / Helm Chart).
+2. **Quản lý phiên bản & Bất biến (Versioned & Immutable):** Git là "Nguồn chân lý duy nhất" (Single Source of Truth), mọi thay đổi bắt buộc phải qua Git Commit / Merge Request, lưu vết 100% lịch sử.
+3. **Kéo tự động (Pulled Automatically):** Agent K8s (ArgoCD) tự động kéo cấu hình đã được phê duyệt trên Git về thực thi, CI runner không cần quyền truy cập cluster.
+4. **Tự đối soát & Phục hồi liên tục (Self-Healing):** ArgoCD chạy vòng lặp đối soát (Reconciliation Loop). Khi có can thiệp trực tiếp trái phép trên cụm K8s, hệ thống tự động phát hiện sai lệch (**OutOfSync**) và ghi đè phục hồi về đúng trạng thái trên Git (**Self-Heal**).
 
 ---
 
-### 1.3. Lợi ích đo lường & Đánh giá cải thiện theo chỉ số DORA
+## CHƯƠNG II: KIẾN TRÚC TỔNG THỂ & QUY TRÌNH PHÁT HÀNH TỰ ĐỘNG (END-TO-END)
 
-Chỉ số **DORA (DevOps Research & Assessment)** là bộ tiêu chuẩn quốc tế uy tín nhất để đo lường hiệu suất kỹ thuật và năng lực phân phối phần mềm. Dưới đây là bảng đánh giá so sánh hiệu năng trước và sau khi triển khai hệ thống GitOps tại công ty, kết hợp giữa **dữ liệu đo lường thực tế từ chu trình CI/CD & ArgoCD** cùng **kỳ vọng cải thiện theo chuẩn benchmark ngành (DORA State of DevOps)**:
+Chu trình phát hành được tự động hóa khép kín từ khâu Developer commit mã nguồn đến khi phiên bản mới chạy ổn định trên Kubernetes:
 
-| Chỉ số DORA | Trước khi có GitOps *(Quy trình Push-based thủ công)* | Sau khi có GitOps *(Đo lường & Ước tính kỹ thuật)* | Kỳ vọng cải thiện *(Dựa theo DORA Benchmark)* | Nguồn dữ liệu & Cơ sở đo lường |
-|---|---|---|---|---|
-| **Tần suất triển khai (Deployment Frequency)** | 1 - 2 lần / tuần *(phụ thuộc lịch trực & can thiệp thủ công)* | **Hàng chục lần / ngày** *(kích hoạt tự động theo tag commit)* | **Tăng ~500% năng suất** *(Đạt mức High/Elite Performer)* | Lịch sử GitLab CI Pipelines & Webhook push từ Harbor Registry sang ArgoCD. |
-| **Thời gian bàn giao thay đổi (Lead Time for Changes)** | 45 - 90 phút *(chờ duyệt, chạy pipeline, deploy & cấu hình tay)* | **< 3 - 5 phút** *(chỉ bao gồm thời gian CI build image & ArgoCD auto-sync)* | **Giảm ~95% thời gian chờ** | Đo từ thời điểm merge commit/push tag đến khi ArgoCD báo trạng thái `Synced` & `Healthy`. |
-| **Thời gian phục hồi dịch vụ (MTTR - Mean Time to Restore)** | 30 - 120 phút *(tìm lỗi, sửa cấu hình K8s trực tiếp hoặc dựng lại CI cũ)* | **< 1 phút** *(chỉ cần 1 thao tác `git revert` hoặc đổi tag manifest)* | **Khôi phục gần như tức thì** | Đo thời gian rollback manifest trên Git và chu kỳ reconciliation tự động của ArgoCD. |
-| **Tỷ lệ thất bại do thay đổi (Change Failure Rate)** | ~15% *(phần lớn do sai lệch biến môi trường, thiếu secret, sai cú pháp YAML)* | **< 1%** *(ước tính trên các service đã chuẩn hóa qua Helm Poly v3)* | **Hạn chế tối đa lỗi do con người** | Thống kê số lần triển khai bị rollback hoặc phát sinh sự cố cấu hình sau khi áp dụng Helm Library Poly v3. |
+```
+┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
+│    Developer    │ ────► │  GitLab CI/CD   │ ────► │ Harbor Registry │
+│   Commit Code   │  (1)  │Build, Test, Push│  (2)  │ (registry.ftech)│
+└─────────────────┘       └─────────────────┘       └────────┬────────┘
+                                                             │
+                              ┌──────────────────────────────┘ (3) Webhook báo Tag mới
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            ARGOCD GITOPS ENGINE                             │
+│                                                                             │
+│ 1. argocd-image-updater : Bắt tag mới từ Harbor ──► (4) Commit tag vào Git  │
+│ 2. Git Manifest Repo    : Lưu trữ Helm Poly v3 + values-{env}.yaml          │
+│ 3. ArgoCD Controller    : (5) Tự động đối soát & Kéo cấu hình về K8s        │
+│ 4. Vault & ExternalSec  : Cấp phát Image Pull Secret & Runtime Secret       │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                                       ▼ (6) Triển khai & Tự phục hồi
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            KUBERNETES WORKLOADS                             │
+│                 (Môi trường: Dev / Staging / Production)                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-> [!NOTE]
-> **Phương pháp luận & Nguồn thu thập số liệu:**
-> * **Dữ liệu thực tế nội bộ:** Được tổng hợp từ log vận hành GitLab CI/CD Analytics, lịch sử Webhook của Harbor Registry và nhật ký đồng bộ (Sync History) của ArgoCD trên các môi trường Dev/Staging.
-> * **Kỳ vọng cải thiện:** Đối chiếu theo các tiêu chuẩn thực hành tốt nhất được công bố trong báo cáo *DORA State of DevOps Report (Google Cloud)* cho các tổ chức chuyển đổi hoàn toàn sang mô hình GitOps tự động hóa khép kín.
-> * **Khuyến nghị đo lường nâng cao:** Để có số liệu hiển thị thời gian thực (Real-time DORA Dashboard), khuyến nghị triển khai trích xuất metric từ Prometheus (`argocd_app_sync_total`, `argocd_app_reconcile_count`) trực quan hóa lên Grafana trong giai đoạn tiếp theo.
+### Chi tiết 6 giai đoạn trong chu trình phát hành:
+1. **Developer Push Code:** Lập trình viên đẩy mã nguồn tính năng mới lên GitLab.
+2. **GitLab CI Pipeline:** Pipeline tự động chạy test, build Docker Image, gắn tag chuẩn hóa (ví dụ: `dev-2026-09-08_...`) và đẩy image lên Harbor Registry (`registry.ftech.ai`). Pipeline kết thúc tại đây, không can thiệp vào K8s.
+3. **Harbor Webhook Trigger:** Harbor phát tín hiệu Webhook thông báo có Image Tag mới sang ArgoCD Image Updater.
+4. **Tự động cập nhật Manifest (`argocd-image-updater`):** Image Updater đối chiếu regex của tag, tự động tạo commit ghi đè tag mới vào file cấu hình trên repo Git Manifest (`manifest/{project}.git`).
+5. **ArgoCD Kéo & Đồng bộ (Reconciliation & Sync):** ArgoCD Application phát hiện commit mới trên Git Manifest, lập tức kích hoạt tiến trình triển khai xuống K8s cluster tương ứng.
+6. **Bảo mật & Khởi chạy Runtime:** Pod mới khởi tạo sử dụng secret kéo ảnh (`regcred`) từ Harbor và tự động nạp secret ứng dụng từ **HashiCorp Vault** lúc runtime.
 
 ---
 
-## CHƯƠNG II: KIẾN TRÚC TỔNG THỂ & QUY TRÌNH PHÁT HÀNH TỰ ĐỘNG
+## CHƯƠNG III: THIẾT KẾ PHÂN TẦNG HỆ THỐNG ARGOCD & CẤU TRÚC DỰ ÁN
 
-### 2.1. Sơ đồ chu trình phát hành khép kín (End-to-End Workflow)
-
-Sơ đồ dưới đây mô tả luồng dữ liệu và quá trình tương tác hoàn toàn tự động giữa Developer, Hệ thống CI/CD, Container Registry, GitOps Engine và Kubernetes Workload:
+Hệ thống GitOps được thiết kế theo mô hình **Phân tầng hướng mô-đun (Hierarchical Modular GitOps)**, phân tách rõ ràng thành 2 luồng quản trị độc lập:
 
 ```
-                          ┌───────────────────────────┐
-                          │         Developer         │
-                          └─────────────┬─────────────┘
-                                        │ 1. Push code tính năng
-                                        ▼
-                          ┌───────────────────────────┐
-                          │       GitLab CI/CD        │
-                          │ (Build, Test, Scan, Pack) │
-                          └─────────────┬─────────────┘
-                                        │ 2. Push Docker Image kèm tag chuẩn
-                                        ▼
-                          ┌───────────────────────────┐
-                          │      Harbor Registry      │◄─────────────────────────┐
-                          │   (registry.ftech.ai)     │                          │
-                          └─────────────┬─────────────┘                          │
-                                        │ 3. Webhook thông báo Image Tag mới     │
-                                        ▼                                        │
-                          ┌───────────────────────────┐                          │
-                          │   argocd-image-updater    │                          │
-                          │ (Phát hiện & ghi nhận tag)│                          │
-                          └─────────────┬─────────────┘                          │
-                                        │ 4. Git Commit tự động tag mới          │
-                                        ▼                                        │
-                          ┌───────────────────────────┐                          │
-                          │     Git Manifest Repo     │                          │
-                          │  (Helm Poly v3 + values)  │                          │
-                          └─────────────┬─────────────┘                          │
-                                        │ 5. Webhook / Polling phát hiện thay đổi│
-                                        ▼                                        │
-                          ┌───────────────────────────┐                          │
-                          │       ArgoCD Server       │                          │
-                          │ (Điều phối Sync & Reconcile)                         │
-                          └─────────────┬─────────────┘                          │
-                                        │ 6. Sync & Áp dụng manifest K8s         │
-                                        ▼                                        │
-                          ┌───────────────────────────┐                          │
-                          │     Kubernetes Cluster    │                          │
-                          │ (dev-new / prod / game...)│──────────────────────────┘
-                          └───────────────────────────┘    7. Pull Container Image
-                                                             (Xác thực qua regcred)
+                                    ┌────────────────────────────────────────────────────────┐
+                                    │               HỆ THỐNG GITOPS ARGOCD                   │
+                                    └────────────────────────────────────────────────────────┘
+                    [ LUỒNG 1: QUẢN TRỊ ỨNG DỤNG & RBAC ]              [ LUỒNG 2: HẠ TẦNG & BẢO MẬT CREDENTIALS ]
+                                       │                                                  │
+                                       ▼                                                  ▼
+                       ┌───────────────────────────────┐                  ┌───────────────────────────────┐
+                       │        argocd-install         │                  │     argocd-bootstrap-apps     │
+                       │  (Cài đặt ArgoCD Core Engine) │                  │  (Thành phần hạ tầng nền tảng)│
+                       └───────────────┬───────────────┘                  └───────────────┬───────────────┘
+                                       │                                                  │
+                                       ▼                                          ┌───────┴───────┐
+                       ┌───────────────────────────────┐                          ▼               ▼
+                       │      argocd-appprojects       │            ┌───────────────────┐   ┌───────────────────────────┐
+                       │(Ranh giới bảo mật, RBAC Casbin│            │argocd-image-      │   │ argocd-manifest-credential│
+                       │ Destination & SourceRepo)     │            │updater-regcreds   │   │(Token kéo Manifest Git)   │
+                       └───────────────┬───────────────┘            │(Token đọc Registry│   └───────────────────────────┘
+                                       │                            │ tag mới từ Harbor)│
+                                       ▼                            └───────────────────┘
+                       ┌───────────────────────────────┐                          │
+                       │   argocd-apps/app-of-apps     │                          ▼
+                       │ (Root App quản lý quét đệ quy)│                  ┌───────────────────────────────┐
+                       └───────────────┬───────────────┘                  │      argocd-apps/regcred      │
+                                       │                                  │ (Secret kéo Image cho từng    │
+                                       ▼                                  │  Namespace & Cluster qua Vault│
+                       ┌───────────────────────────────┐                  └───────────────┬───────────────┘
+                       │     argocd-apps/{project}     │                                  │
+                       │(Application YAML chi tiết của │◄─────────────────────────────────┘
+                       │ từng Service + Image Updater) │
+                       └───────────────┬───────────────┘
+                                       │
+                                       ▼
+                       ┌──────────────────────────────────────────────────────────┐
+                       │                      Manifest Repo                       │
+                       │  (gitlab.ftech.ai/devops/gitops/argocd/manifest/{project})│
+                       │       [Helm Chart Poly v3 + values-*.yaml]               │
+                       └──────────────────────────────────────────────────────────┘
 ```
 
----
+### 3.1. Luồng 1: Quản trị Vòng đời Ứng dụng & Phân quyền (Application Stream)
+* **`argocd-install`:** Chứa manifest cài đặt lõi ArgoCD (Server, Repo Server, Controller, Redis, SSO Dex tích hợp GitLab đăng nhập nội bộ).
+* **`argocd-appprojects`:** Thiết lập ranh giới bảo mật (**Logical Isolation Boundary**) cho từng khối dự án (ví dụ: `southeast-asia-game`, `webgl-game`, `fcloud`...). Giới hạn cluster đích, namespace đích, whitelist repo và phân quyền truy cập.
+* **`argocd-apps/app-of-apps` (Root Application):** Áp dụng mô hình Parent-Child với cờ quét đệ quy (`directory.recurse: true`). Khi cần đưa một microservice/game mới lên hệ thống, kỹ sư chỉ cần commit 1 file YAML vào thư mục `argocd-apps/{project}/`, Root App sẽ **tự động phát hiện và kích hoạt ứng dụng lên K8s trong vài giây** mà không cần tạo thủ công trên Web UI.
+* **`argocd-apps/{project}`:** Chứa các Application YAML chi tiết của từng service con (kèm cấu hình regex tự động bắt tag của `argocd-image-updater`).
 
-### 2.2. Phân tích chuyên sâu 6 giai đoạn trong chu trình phát hành
+### 3.2. Luồng 2: Quản trị Hạ tầng Nền tảng & Cấp phát Chứng thực (Infrastructure Stream)
+* **`argocd-bootstrap-apps`:** Quản lý vòng đời các công cụ nền tảng cho toàn cụm: Vault Injector, External Secrets Operator (ESO), Ingress Controller, Cert-Manager...
+* **`argocd-manifest-credential` & `argocd-image-updater-regcreds`:** Khởi tạo token kết nối Vault để ArgoCD đọc/ghi vào Git Manifest repo và cho phép Image Updater truy vấn API của Harbor.
+* **`argocd-apps/regcred`:** Tự động hóa việc sinh secret kéo ảnh (`regcred`) vào từng Namespace trên mọi cluster K8s thông qua `ApplicationSet` kết hợp `ExternalSecrets`.
 
-#### 🔹 Giai đoạn 1: Lập trình và Đẩy mã nguồn (Code Commit & Push)
-* Lập trình viên (Developer) hoàn thiện mã nguồn và đẩy commit lên nhánh quy định trên GitLab (ví dụ: nhánh `develop` cho môi trường Dev, nhánh `main` cho Production).
-
-#### 🔹 Giai đoạn 2: Tự động hóa Tích hợp Liên tục (CI Pipeline & Container Registry)
-* GitLab CI tự động kích hoạt pipeline tích hợp bao gồm:
-  1. Chạy Unit Test và Linting code.
-  2. Quét lỗ hổng bảo mật tĩnh (SAST qua SonarQube).
-  3. Đóng gói mã nguồn thành Docker Image.
-  4. Đẩy Image lên **Harbor Registry** (`registry.ftech.ai`) theo quy tắc đặt tag chuẩn hóa:
-     * Quy ước môi trường Dev: `dev-YYYY-MM-DD_HH-mm-ss_{short_sha}` (ví dụ: `dev-2026-09-08_10-30-00_a1b2c3d`).
-     * Quy ước môi trường Prod: `vX.Y.Z` hoặc `release-YYYY-MM-DD_{tag}`.
-
-#### 🔹 Giai đoạn 3: Bắt sự kiện Image mới (`argocd-image-updater`)
-* Harbor gửi Webhook tới công cụ `argocd-image-updater` đang chạy nền trong cụm K8s.
-* Image Updater đối chiếu tag mới vừa nhận với bộ lọc Regex được khai báo trong Application YAML của dịch vụ (ví dụ: `image-updater.argoproj.io/poly.image.tag: regexp:^dev-[0-9]{4}-...`).
-
-#### 🔹 Giai đoạn 4: Tự động cập nhật phiên bản vào Git Manifest (Auto Git Commit)
-* Khi xác nhận tag mới hợp lệ, `argocd-image-updater` sử dụng Token định danh (quản lý qua `argocd-manifest-credential`) để tạo một commit trực tiếp vào repo **GitLab Manifest** (`manifest/{project}.git`).
-* Nội dung commit cập nhật trường `image.tag` trong file cấu hình tương ứng (ví dụ: `values-dev.yaml`).
-
-#### 🔹 Giai đoạn 5: Đối soát và Kích hoạt Đồng bộ (ArgoCD Reconciliation Loop)
-* ArgoCD nhận tín hiệu Webhook từ GitLab (hoặc qua cơ chế quét chu kỳ 3 phút).
-* ArgoCD nhận diện trạng thái của Application chuyển sang **OutOfSync** (vì Git Manifest có commit mới nhưng K8s Cluster vẫn đang chạy tag cũ).
-* Nhờ cấu hình `syncPolicy: automated`, ArgoCD tự động kích hoạt tiến trình Sync:
-  * Render các template từ thư viện Helm Chart **Poly v3** kết hợp cùng `values-{env}.yaml` mới nhất.
-  * Gửi chỉ thị áp dụng trạng thái tài nguyên mới (Deployment, Service, Ingress...) xuống Kubernetes Cluster mục tiêu (`dev-new`, `prod`, `game`).
-
-#### 🔹 Giai đoạn 6: Khởi tạo Pod & Tải Image an toàn (Pod Runtime Execution)
-* Kubernetes Controller Manager tiếp nhận Deployment mới và tiến hành chiến lược Rolling Update (hoặc Recreate).
-* Kubelet trên Worker Node sử dụng Secret **`regcred`** (đã được đồng bộ sẵn tự động từ Vault vào Namespace) để xác thực và tải (pull) container image mới từ Harbor.
-* Nếu Pod có cấu hình nạp bí mật, **Vault Agent Injector** sẽ tự động gắn sidecar container để inject các biến môi trường/secret cần thiết trước khi container chính thức tiếp nhận traffic.
-
----
-
-### 2.3. Cơ chế cấu hình `argocd-image-updater` trên Application YAML
-
-Để kích hoạt cơ chế tự động theo dõi và ghi tag, mỗi file Application con (`argocd-apps/{project}/{app}-{env}.yaml`) được gắn các `annotations` chuẩn hóa như sau:
-
-```yaml
-metadata:
-  name: cambodia-flay-auth-dev
-  namespace: argocd
-  annotations:
-    # 1. Khai báo alias image cần theo dõi trong Helm Chart
-    argocd-image-updater.argoproj.io/image-list: poly=registry.ftech.ai/southeast-asia-game/cambodia/flay-auth
-    
-    # 2. Định nghĩa chiến lược chọn tag mới nhất (dựa theo thời gian push lên Harbor)
-    argocd-image-updater.argoproj.io/poly.update-strategy: latest
-    
-    # 3. Bộ lọc Regex chỉ chấp nhận tag chuẩn môi trường dev
-    argocd-image-updater.argoproj.io/poly.allow-tags: regexp:^dev-[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}_[a-f0-9]+$
-    
-    # 4. Chỉ định phương thức ghi commit trực tiếp vào nhánh Git của repo Manifest
-    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-manifest-credential
-    argocd-image-updater.argoproj.io/git-branch: main
-```
-
----
-
-## CHƯƠNG III: THIẾT KẾ PHÂN TẦNG HỆ THỐNG ARGOCD & QUẢN TRỊ DỰ ÁN
-
-Hệ thống GitOps của FTech được tổ chức theo kiến trúc **Phân tầng hướng mô-đun (Hierarchical Modular GitOps)** chia làm 2 trục vận hành độc lập:
-
-```
-                                ┌────────────────────────────────────────────────────────┐
-                                │               HỆ THỐNG GITOPS ARGOCD                   │
-                                └────────────────────────────────────────────────────────┘
-                [ TRỤC 1: QUẢN TRỊ ỨNG DỤNG & RBAC ]               [ TRỤC 2: HẠ TẦNG & BẢO MẬT CREDENTIALS ]
-                                   │                                                  │
-                                   ▼                                                  ▼
-                   ┌───────────────────────────────┐                  ┌───────────────────────────────┐
-                   │        argocd-install         │                  │     argocd-bootstrap-apps     │
-                   │  (Cài đặt ArgoCD Core Engine) │                  │  (Thành phần hạ tầng nền tảng)│
-                   └───────────────┬───────────────┘                  └───────────────┬───────────────┘
-                                   │                                                  │
-                                   ▼                                          ┌───────┴───────┐
-                   ┌───────────────────────────────┐                          ▼               ▼
-                   │      argocd-appprojects       │            ┌───────────────────┐   ┌───────────────────────────┐
-                   │(Ranh giới bảo mật, RBAC Casbin│            │argocd-image-      │   │ argocd-manifest-credential│
-                   │ Destination & SourceRepo)     │            │updater-regcreds   │   │(Token kéo Manifest Git)   │
-                   └───────────────┬───────────────┘            │(Token đọc Registry│   └───────────────────────────┘
-                                   │                            │ tag mới từ Harbor)│
-                                   ▼                            └───────────────────┘
-                   ┌───────────────────────────────┐                          │
-                   │   argocd-apps/app-of-apps     │                          ▼
-                   │ (Root App quản lý quét đệ quy)│                  ┌───────────────────────────────┐
-                   └───────────────┬───────────────┘                  │      argocd-apps/regcred      │
-                                   │                                  │ (Secret kéo Image cho từng    │
-                                   ▼                                  │  Namespace & Cluster qua Vault│
-                   ┌───────────────────────────────┐                  └───────────────┬───────────────┘
-                   │     argocd-apps/{project}     │                                  │
-                   │(Application YAML chi tiết của │◄─────────────────────────────────┘
-                   │ từng Service + Image Updater) │
-                   └───────────────┬───────────────┘
-                                   │
-                                   ▼
-                   ┌──────────────────────────────────────────────────────────┐
-                   │                      Manifest Repo                       │
-                   │  (gitlab.ftech.ai/devops/gitops/argocd/manifest/{project})│
-                   │       [Helm Chart Poly v3 + values-*.yaml]               │
-                   └──────────────────────────────────────────────────────────┘
-```
-
----
-
-### 3.1. Trục 1: Quản trị Vòng đời Ứng dụng & Phân quyền (Application Stream)
-
-Trục bên trái chịu trách nhiệm thiết lập ranh giới dự án, kiểm soát quyền truy cập của con người và quản lý vòng đời ứng dụng:
-
-1. **`argocd-install` (Khởi tạo lõi ArgoCD):**
-   * Triển khai bộ máy ArgoCD trên cụm K8s chính (Server, Repo Server, Application Controller, Redis Cache).
-   * Tích hợp Single Sign-On (**Dex SSO**) liên kết trực tiếp với tài khoản GitLab nội bộ công ty (`@ftech.com.vn`), giúp nhân viên đăng nhập an toàn bằng tài khoản doanh nghiệp.
-2. **`argocd-appprojects` (Thiết lập ranh giới dự án & Phân quyền RBAC):**
-   * Định nghĩa thực thể `AppProject` để tạo vùng cô lập logic (**Logical Multi-tenancy**) cho từng dự án (`southeast-asia-game`, `webgl-game`, `fcloud`, `fedu`...).
-   * **Source Repos Whitelist:** Chỉ định chính xác các Git repo được phép làm nguồn cấu hình, ngăn chặn việc trỏ tới repo không tin cậy.
-   * **Destinations Whitelist:** Khóa chặt dự án chỉ được phép deploy vào đúng Cluster và Namespace được cấp phép (ví dụ: project `webgl-game` chỉ được phép deploy vào cluster `game` và namespace `webgl-game`).
-   * **Cluster Resource Blacklist:** Chặn đứng việc tạo đè các tài nguyên nhạy cảm của cluster như `ClusterRole`, `ClusterRoleBinding`, `Namespace`.
-   * **Casbin RBAC Policy:** Phân quyền chi tiết cho từng nhóm lập trình viên theo vai trò.
-3. **`argocd-apps/app-of-apps` (Root Application):**
-   * Khởi tạo **Root Application** cho từng dự án, quản lý việc quét tự động các ứng dụng con.
-4. **`argocd-apps/{project}` (Child Applications):**
-   * Chứa các file YAML định nghĩa từng dịch vụ/game độc lập, liên kết Helm Chart Manifest, cấu hình chính sách đồng bộ (`syncPolicy`) và tham số `argocd-image-updater`.
-
----
-
-### 3.2. Trục 2: Quản trị Hạ tầng Nền tảng & Cấp phát Chứng thực (Infrastructure Stream)
-
-Trục bên phải đảm bảo các thành phần nền tảng, chứng chỉ và kết nối bảo mật luôn sẵn sàng phục vụ các ứng dụng:
-
-1. **`argocd-bootstrap-apps` (Infra Bootstrap Components):**
-   * Quản lý tự động các công cụ hạ tầng nền tảng trên toàn bộ các cụm K8s:
-     * **Ingress-Nginx & Cert-Manager:** Điều hướng lưu lượng mạng và tự động cấp phát chứng chỉ SSL/TLS.
-     * **External Secrets Operator & Vault Agent Injector:** Cầu nối trích xuất dữ liệu nhạy cảm từ HashiCorp Vault.
-     * **Prometheus, Grafana, Loki:** Bộ công cụ giám sát hiệu năng, log và cảnh báo.
-2. **`argocd-manifest-credential` & `argocd-image-updater-regcreds`:**
-   * Cung cấp Private Token an toàn (tích hợp đọc từ Vault) để ArgoCD và Image Updater có quyền đọc/ghi vào các Git Manifest Repo và truy vấn tag từ Harbor Container Registry.
-3. **`argocd-apps/regcred` (Registry Credentials cấp phát tự động):**
-   * Quản lý việc tạo Secret kéo Image (`dockerconfigjson`) vào **mọi Namespace trên tất cả các Cluster K8s**.
-   * Sử dụng cơ chế `ApplicationSet` kết hợp `ExternalSecrets` để tự động kéo thông tin `robot$pull` từ Vault và đồng bộ thành Secret Kubernetes cục bộ.
-
----
-
-### 3.3. Cơ chế tự động phát hiện ứng dụng (App-of-Apps & Recursive Discovery)
-
-Để giải quyết bài toán mở rộng khi công ty có hàng trăm microservice và game mới ra mắt liên tục, hệ thống áp dụng cơ chế **Recursive App-of-Apps**:
-
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: root-southeast-asia-game
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: southeast-asia-game
-  source:
-    repoURL: https://gitlab.ftech.ai/devops/gitops/argocd.git
-    targetRevision: main
-    path: argocd-apps/southeast-asia-game
-    directory:
-      recurse: true # Quét đệ quy toàn bộ thư mục con
-  destination:
-    name: in-cluster
-    namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-```
-
-* **Lợi ích vận hành:** Lập trình viên hoặc DevOps khi muốn đưa một service mới lên K8s **không cần truy cập Web UI ArgoCD để bấm tạo thủ công**. Chỉ cần commit một file YAML (ví dụ: `game-api-dev.yaml`) vào thư mục `argocd-apps/{project}/`, Root App sẽ tự động phát hiện trong vòng vài giây và kích hoạt ứng dụng đó lên cluster tương ứng.
-
----
-
-### 3.4. Chiến lược Tách biệt Repository & Chuẩn hóa Manifest với Helm Chart Poly v3
-
-Hệ thống tuân thủ nguyên tắc **Tách biệt mối quan tâm (Separation of Concerns)** bằng cách phân chia thành 2 loại Repository độc lập:
-
-```
-┌────────────────────────────────────────────────────────┐
-│ 1. GitOps Orchestration Repository (argocd.git)       │
-│ - argocd-appprojects/ : Quản lý RBAC, Whitelist Cluster│
-│ - argocd-apps/        : Application YAML & Updater Annot│
-│ ➔ Dành cho: Quản trị viên DevOps, DevSecOps            │
-└────────────────────────────────────────────────────────┘
-                           │
-                           │ Trỏ tham chiếu
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│ 2. Application Manifest Repository (manifest/{prj}.git)│
-│ - values-dev.yaml     : Cấu hình CPU, RAM, Replicas Dev│
-│ - values-prod.yaml    : Cấu hình CPU, RAM, Ingress Prod│
-│ - Helm Library        : Sử dụng chung thư viện Poly v3 │
-│ ➔ Dành cho: Developer & Application Team               │
-└────────────────────────────────────────────────────────┘
-```
-
-#### Chuẩn hóa Thư viện Helm Chart Poly v3:
-Toàn bộ các dự án microservice và game trong công ty không viết lại các file Kubernetes YAML thủ công (`Deployment.yaml`, `Service.yaml`, `Ingress.yaml`, `HPA.yaml`) mà sử dụng chung thư viện **Helm Chart Poly v3**.
-* **Đặc điểm:** Thư viện này chuẩn hóa toàn bộ các mẫu cấu hình chuẩn doanh nghiệp: Graceful Shutdown, Readiness/Liveness Probes, Security Context, Ingress Annotations, và tự động inject `imagePullSecrets: [{name: "regcred"}]`.
-* **Ưu điểm vượt trội:** Giảm kích thước file cấu hình từ hàng trăm dòng YAML phức tạp xuống còn một file `values-{env}.yaml` ngắn gọn (~20-30 dòng), loại bỏ hoàn toàn các lỗi sai sót cú pháp hoặc quên cấu hình giới hạn tài nguyên (Resource Limits).
-* **Chuẩn hóa đặt tên:** Bắt buộc tuân thủ chuẩn RFC 1123 (`[a-z0-9-]`), cấm dùng ký tự gạch dưới `_` trong `metadata.name` và `helm.releaseName` để đảm bảo tương thích 100% với DNS nội bộ của Kubernetes.
+### 3.3. Chuẩn hóa Manifest qua Thư viện Helm Chart Poly v3
+* Tách biệt 2 loại repo:
+  * **GitOps Repo (`argocd.git`):** Quản lý điều phối, phân quyền và kết nối cụm (dành cho DevOps).
+  * **Manifest Repo (`manifest/{project}.git`):** Quản lý tham số ứng dụng (CPU, RAM, Replicas, Ingress) (dành cho Developer).
+* Toàn bộ microservice và game dùng chung thư viện **Helm Chart Poly v3**. Lập trình viên chỉ cần duy trì file `values-{env}.yaml` ngắn gọn (~20-30 dòng) thay vì viết hàng trăm dòng Kubernetes YAML thủ công, loại bỏ hoàn toàn các lỗi sai lệch cấu hình.
 
 ---
 
 ## CHƯƠNG IV: QUẢN TRỊ BẢO MẬT & CHIẾN LƯỢC "ZERO-SECRET IN GIT"
 
-Hệ thống kiên quyết thực hiện chiến lược **Zero-Secret in Git**: Không lưu trữ bất kỳ mật khẩu, khóa bí mật, API Token nào dưới dạng văn bản thô (Plain-text) trên Git repository.
+Hệ thống kiên quyết thực hiện nguyên tắc **Zero-Secret in Git**: Tuyệt đối không lưu trữ mật khẩu, API Key hay Token dạng Plain-text trên Git.
 
-### 4.1. Phân biệt bản chất 2 tầng Secret trong hệ thống
+### 4.1. Phân biệt Bản chất 2 Tầng Secret trong Hệ thống (`regcred` vs `vault`)
 
-Một trong những điểm quan trọng nhất trong kiến trúc bảo mật của công ty là việc phân tách rõ ràng giữa **Secret kéo Image hạ tầng (`regcred`)** và **Secret ứng dụng runtime (`vault`)**:
+Hệ thống phân tách rành mạch giữa **Secret hạ tầng để kéo ảnh container** và **Secret ứng dụng runtime**:
 
 ```
                               ┌──────────────────────────────────────────────────┐
@@ -421,226 +167,43 @@ Một trong những điểm quan trọng nhất trong kiến trúc bảo mật c
 
 | Tiêu chí | 1️⃣ Image Pull Secret (`regcred`) | 2️⃣ Application Runtime Secret (`vault`) |
 |---|---|---|
-| **Bản chất** | Kubernetes Secret kiểu `kubernetes.io/dockerconfigjson`. | Dữ liệu cấu hình ứng dụng (DB Password, Redis Auth, JWT Key...). |
-| **Mục đích** | Cho Kubelet Node đăng nhập Harbor để **kéo Image container** về máy chủ. | Cho mã nguồn phần mềm bên trong Pod **kết nối Database, Third-party API**. |
+| **Bản chất** | Kubernetes Secret kiểu `kubernetes.io/dockerconfigjson`. | Secret cấu hình ứng dụng (DB Password, Redis Auth, JWT Key...). |
+| **Mục đích** | Cho Kubelet Node đăng nhập Harbor để **kéo Image container** về máy chủ. | Cho ứng dụng bên trong Pod **kết nối Database, Third-party API**. |
 | **Phạm vi quản lý** | Cấp độ toàn Namespace (**Namespace Scope**). | Cấp độ từng Pod / Microservice (**Pod Scope**). |
-| **Vị trí định nghĩa** | Quản lý tập trung trong repo `manifest/regcred.git`. | Khai báo trong `values-*.yaml` của từng service backend cụ thể. |
-| **Cơ chế nạp** | Tự động sinh qua **External Secrets Operator**. | Tự động inject qua **Vault Agent Injector (Sidecar)**. |
+| **Cơ chế nạp** | Tự động sinh qua **External Secrets Operator (ESO)**. | Tự động inject qua **Vault Agent Injector (Sidecar)**. |
 | **Đối tượng dùng** | **Tất cả các Pod** trong namespace (được Helm Poly v3 gán tự động). | **Chỉ các ứng dụng Backend/API** có nhu cầu kết nối DB/Bảo mật. |
 
----
+### 4.2. Cơ chế Cấp phát Image Pull Secret (`regcred`)
+* Tài khoản Robot Account của Harbor được lưu trữ an toàn trong Vault.
+* `ExternalSecret` định kỳ đối soát với Vault, tự động tạo và duy trì K8s Secret `regcred` trong từng namespace.
+* Helm Chart Poly v3 tự động gán `imagePullSecrets: [{name: "regcred"}]` vào cấu hình Pod. Kubelet tự động kéo được Image từ Harbor mà lập trình viên không cần cấu hình secret thủ công.
 
-### 4.2. Cơ chế cấp phát Image Pull Secret tự động qua External Secrets
+### 4.3. Cơ chế Inject Secret động cấp Pod (`vault`)
+* Đối với ứng dụng Backend/API, thông tin kết nối DB và API Key không lưu trong ConfigMap.
+* **Vault Mutating Webhook** tự động gắn một container sidecar (`vault-agent`) vào Pod lúc khởi chạy.
+* Sidecar xác thực với Vault qua ServiceAccount Token của Kubernetes, lấy Secret và ghi trực tiếp vào ổ đĩa bộ nhớ RAM ảo (**ramfs memory** tại `/vault/secrets/config.env`).
+* Secret chỉ tồn tại trong bộ nhớ RAM của Pod, **không bao giờ bị ghi xuống ổ đĩa cứng hay lưu thô trên Kubernetes etcd**.
 
-1. DevOps lưu trữ tài khoản Robot Account của Harbor tại đường dẫn Vault: `secret/data/projects/{project}/regcred`.
-2. Ứng dụng `ExternalSecret` định kỳ đối soát với Vault:
-   * Trích xuất thông tin `auths.registry.ftech.ai` từ Vault.
-   * Tạo ra 1 Kubernetes Secret có tên là `regcred` nằm sẵn trong namespace của dự án.
-3. Khi Helm Chart Poly v3 triển khai bất kỳ ứng dụng nào vào namespace đó, Pod sẽ tự động đính kèm:
-   ```yaml
-   imagePullSecrets:
-     - name: regcred
-   ```
-   Nhờ đó, Kubelet kéo được Image từ Harbor mà lập trình viên không cần can thiệp cấu hình secret kéo ảnh thủ công.
+### 4.4. Phân tích Ca sử dụng Thực tế: WebGL Game vs Backend Microservice
+* **Game WebGL / HTML5 Canvas (vd: `c108-jigsaw-anime-girl`):** Là ứng dụng tĩnh chạy hoàn toàn phía Client (trình duyệt người dùng) kết hợp Web Server Nginx. Ứng dụng không kết nối Database nội bộ, không có Secret backend $\rightarrow$ **Không kích hoạt module Vault**, giúp tiết kiệm tài nguyên CPU/RAM cho cluster vì không cần chạy sidecar container.
+* **Backend Microservices (Auth, Payment, Game Server, API):** Bắt buộc kích hoạt khối `vault:` trong manifest để bảo vệ dữ liệu nhạy cảm.
 
----
-
-### 4.3. Cơ chế Inject Secret động cấp Pod qua HashiCorp Vault Agent Injector
-
-Đối với các ứng dụng Backend/API, thông tin kết nối Cơ sở dữ liệu và API Key không bao giờ được đặt trong biến môi trường tĩnh (ConfigMap) trên Git. Thay vào đó, quy trình nạp secret diễn ra hoàn toàn động:
-
-1. Trong file `values-{env}.yaml`, khai báo kích hoạt Vault:
-   ```yaml
-   poly:
-     flay-auth:
-       vault:
-         enabled: true
-         config:
-           path: "secret/data/projects/southeast-asia-game/cambodia/flay-auth/dev"
-           authPath: "auth/kubernetes-dev-new"
-           role: "southeast-asia-game-flay-auth-dev-ro"
-   ```
-2. Khi Pod khởi tạo trên cụm K8s, **Vault Mutating Webhook** tự động gắn một container sidecar (`vault-agent`).
-3. Sidecar xác thực với HashiCorp Vault thông qua **K8s ServiceAccount Token** của Pod.
-4. Vault kiểm tra quyền (Policy), nếu hợp lệ sẽ trả về Secret. Sidecar ghi secret này vào một ổ đĩa bộ nhớ ảo (**ramfs memory** tại `/vault/secrets/config.env`).
-5. Container chính của ứng dụng chỉ việc đọc file cấu hình này từ bộ nhớ RAM. Secret không bao giờ bị ghi xuống đĩa cứng hay lưu trữ thô trên Kubernetes etcd, đảm bảo tiêu chuẩn bảo mật ngân hàng/doanh nghiệp cao nhất.
+### 4.5. Cơ chế Phân quyền RBAC qua Casbin Policy
+* Phân quyền 2 tầng: Tầng toàn cục (`argocd-rbac-cm` kết hợp GitLab SSO) và Tầng từng dự án (`AppProject`).
+* Phân chia 3 nhóm quyền chính:
+  * **`read-only` (QA/Tester):** Chỉ xem thông tin tài nguyên, logs và sự kiện.
+  * **`developer` (Dev):** Xem, Sync và Restart Pod trên môi trường Dev/Staging để kiểm thử tính năng mới.
+  * **`admin / lead` (Tech Lead/DevOps):** Toàn quyền kiểm soát và phê duyệt triển khai môi trường Production.
 
 ---
 
-### 4.4. Phân tích ca sử dụng thực tế: WebGL Static Game vs Backend Microservice
+## CHƯƠNG V: KẾT LUẬN & ĐỀ XUẤT TỐI ƯU HÓA
 
-Trong quá trình rà soát hệ thống, có một trường hợp thực tế rất đáng lưu ý: **Tại sao các game WebGL (ví dụ: Game 108 `c108-jigsaw-anime-girl`) không có khối cấu hình `vault:` trong manifest?**
+### 5.1. Tóm tắt Giá trị Đạt được
+1. **Tự động hóa khép kín:** Khắc phục hoàn toàn sự phụ thuộc vào thao tác thủ công, loại bỏ nguy cơ lệch cấu hình (Configuration Drift) nhờ tính năng Self-Healing.
+2. **Bảo mật Zero-Trust:** Pipeline CI không còn nắm giữ Kubeconfig; toàn bộ Secret được quản trị tập trung tại Vault và cấp phát tự động.
+3. **Chuẩn hóa hạ tầng:** Tái sử dụng Helm Library Poly v3 và mô hình App-of-Apps, giúp việc onboarding dịch vụ mới diễn ra nhanh chóng, chính xác.
 
-* **Giải thích kiến trúc:**
-  1. **Game WebGL / HTML5 Canvas:** Là ứng dụng tĩnh chạy hoàn toàn phía Client (Trình duyệt web của người dùng) kết hợp cùng Web Server nhẹ (Nginx) để phục vụ file JS/CSS/HTML/Assets. Ứng dụng này **không kết nối Database nội bộ**, không chứa Private Key backend. Do đó, **không cần inject Secret runtime qua Vault**, giúp tiết kiệm tài nguyên CPU/RAM cho cluster vì không cần chạy sidecar container.
-  2. **Backend Services (Auth, Payment, Game Server, API):** Bắt buộc phải cấu hình khối `vault:` để bảo vệ các thông tin nhạy cảm.
-
----
-
-### 4.5. Mô hình Phân quyền Đa tầng & Kiểm soát Ranh giới qua Casbin RBAC Policy
-
-ArgoCD quản trị quyền truy cập của các thành viên thông qua cơ chế phân quyền dựa trên vai trò (**Role-Based Access Control - RBAC**) với nhân điều phối chính sách **Casbin Policy Engine**. Trong kiến trúc GitOps của công ty, RBAC được triển khai theo mô hình **2 tầng bảo mật độc lập**:
-
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                        KIẾN TRÚC PHÂN QUYỀN 2 TẦNG TRONG ARGOCD                       │
-├─────────────────────────────────────────┬──────────────────────────────────────────────┤
-│ 1. TẦNG HỆ THỐNG TOÀN CỤC (GLOBAL RBAC) │ 2. TẦNG PHÂN QUYỀN DỰ ÁN (PROJECT-LEVEL RBAC)│
-│ - Cấu hình tại: `argocd-rbac-cm` ConfigMap│ - Cấu hình tại: `argocd-appprojects/*.yaml`   │
-│ - Tích hợp SSO (GitLab OIDC / OAuth2)   │ - Khai báo trong khối `.spec.roles`          │
-│ - Ánh xạ Group công ty vào quyền cluster│ - Cách ly ranh giới và tài nguyên từng Team  │
-└─────────────────────────────────────────┴──────────────────────────────────────────────┘
-```
-
-#### 1. Cấu trúc Cú pháp Chính sách Casbin (Policy Syntax):
-Trong từng AppProject, mỗi quyền hạn được định nghĩa theo định dạng Casbin Policy chuẩn:
-```text
-p, proj:<PROJECT_NAME>:<ROLE_NAME>, <RESOURCE>, <ACTION>, <PROJECT_NAME>/<APP_OBJECT>, <EFFECT>
-```
-* `<RESOURCE>`: Loại tài nguyên trong ArgoCD (phổ biến nhất là `applications`, `logs`, `exec`, `repositories`).
-* `<ACTION>`: Hành động cho phép (`get`, `create`, `update`, `delete`, `sync`, `override`, hoặc custom action như `action/apps:Deployment:restart`).
-* `<EFFECT>`: Kết quả áp dụng (`allow` hoặc `deny`).
-
-#### 2. Ví dụ Manifest Cấu hình Thực tế trong `argocd-appprojects/`:
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: AppProject
-metadata:
-  name: southeast-asia-game
-  namespace: argocd
-spec:
-  description: "Ranh giới quản trị cho các dịch vụ Game Đông Nam Á"
-  sourceRepos:
-    - "https://gitlab.ftech.ai/devops/gitops/argocd/manifest/southeast-asia-game.git"
-  destinations:
-    - namespace: "southeast-asia-game"
-      server: "https://kubernetes.default.svc"
-  roles:
-    # Role Developer: Cho phép Sync & Restart Pod trên môi trường Dev
-    - name: developer
-      description: "Quyền vận hành thử nghiệm cho Developer"
-      policies:
-        - p, proj:southeast-asia-game:developer, applications, get, southeast-asia-game/*, allow
-        - p, proj:southeast-asia-game:developer, applications, sync, southeast-asia-game/*, allow
-        - p, proj:southeast-asia-game:developer, applications, action/apps:Deployment:restart, southeast-asia-game/*, allow
-      groups:
-        - "gitlab:group-southeast-asia-game"
-        - "gianglt@ftech.com.vn"
-```
-
-#### 3. Khung Ma trận Phân quyền Tham chiếu (Reference RBAC Baseline Matrix):
-Dưới đây là mô hình phân quyền tham chiếu chuẩn được khuyến nghị áp dụng đồng bộ cho các AppProject trong hệ thống:
-
-| Vai trò (Role) | Nhóm đối tượng áp dụng | Cú pháp Chính sách Casbin Mẫu (`policies`) | Ranh giới & Mục đích vận hành |
-|---|---|---|---|
-| **`read-only`** | QA, Tester, Junior Developer, Security Auditor | `p, proj:<prj>:read-only, applications, get, <prj>/*, allow` | Cho phép quan sát trực quan cây tài nguyên, kiểm tra trạng thái Pods, xem Event. **Tuyệt đối không có quyền thay đổi cấu hình hay trigger sync.** |
-| **`developer`** | Software Engineers, Game Developers | `p, proj:<prj>:developer, applications, get, <prj>/*, allow`<br>`p, proj:<prj>:developer, applications, sync, <prj>/*, allow`<br>`p, proj:<prj>:developer, applications, action/apps:Deployment:restart, <prj>/*, allow` | Cho phép chủ động Sync hoặc Restart Pod trên các môi trường thử nghiệm (**Dev / Staging**) để kiểm thử tính năng mới mà không cần nhờ DevOps can thiệp thủ công. |
-| **`admin / lead`** | Tech Lead, DevOps / DevSecOps Engineers | `p, proj:<prj>:admin, applications, *, <prj>/*, allow`<br>`p, proj:<prj>:admin, repositories, *, *, allow` | Toàn quyền kiểm soát, cấu hình whitelist cluster/namespace, phê duyệt triển khai và rollback khẩn cấp trên mọi môi trường (bao gồm **Production**). |
-
-> [!IMPORTANT]
-> **Quy trình Kiểm tra & Xác minh Thực tế (RBAC Audit Guideline):**
-> * Ma trận trên đóng vai trò là **Khung tham chiếu kiến trúc (Baseline Matrix)** của khối Kỹ thuật.
-> * Khi đưa vào vận hành trên từng dự án cụ thể, kỹ sư cần kiểm tra trực tiếp file manifest tương ứng trong thư mục `argocd-appprojects/{project-name}.yaml` (hoặc lệnh `kubectl get appproject {project-name} -n argocd -o yaml`) để đối chiếu danh sách email/group OIDC (`.spec.roles[].groups`) và các hành động chuyên biệt (như quyền `exec` vào container pod hay xem logs nhạy cảm) nhằm đảm bảo tuân thủ đúng ma trận phân quyền thực tế của từng bộ phận.
-
----
-
-## CHƯƠNG V: ĐÁNH GIÁ HIỆU NĂNG, RỦI RO VẬN HÀNH & ĐỀ XUẤT TỐI ƯU HÓA
-
-### 5.1. Bảng so sánh định lượng: CI/CD truyền thống vs Hệ thống GitOps hiện tại
-
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                        BẢNG ĐÁNH GIÁ ĐỊNH LƯỢNG HỆ THỐNG                               │
-├────────────────────────────┬────────────────────────────┬──────────────────────────────┤
-│ TIÊU CHÍ SO SÁNH           │ MÔ HÌNH CI/CD TRUYỀN THỐNG │ HỆ THỐNG GITOPS HIỆN TẠI     │
-├────────────────────────────┼────────────────────────────┼──────────────────────────────┤
-│ 1. Kiểm soát phiên bản     │ Rời rạc, config nằm trên   │ Tập trung 100% trên Git      │
-│    (Version Control)       │ nhiều pipeline CI          │ (Single Source of Truth)     │
-├────────────────────────────┼────────────────────────────┼──────────────────────────────┤
-│ 2. Quản trị Secret         │ Plain-text / Biến CI tĩnh  │ Zero-Secret, Vault động      │
-│    (Secret Management)     │ ❌ Nguy cơ lộ lọt cao      │ 🔒 An toàn tuyệt đối         │
-├────────────────────────────┼────────────────────────────┼──────────────────────────────┤
-│ 3. Chống Configuration     │ Không có (Ai sửa K8s trực  │ Tự động phát hiện & ghi đè   │
-│    Drift (Lệch cấu hình)   │ tiếp thì Git không biết)   │ phục hồi (Self-Healing)      │
-├────────────────────────────┼────────────────────────────┼──────────────────────────────┤
-│ 4. Tốc độ Rollback         │ Phải re-build hoặc re-run  │ < 1 phút (Chỉ cần revert     │
-│    (Disaster Recovery)     │ lại pipeline CI cũ         │ commit trên Git)             │
-├────────────────────────────┼────────────────────────────┼──────────────────────────────┤
-│ 5. Chuẩn hóa hạ tầng       │ Mỗi team viết YAML một kiểu│ Thống nhất qua Helm Poly v3  │
-│    (Standardization)       │ ❌ Dễ sai sót cú pháp      │ 🚀 Tái sử dụng tối đa        │
-└────────────────────────────┴────────────────────────────┴──────────────────────────────┘
-```
-
----
-
-### 5.2. Nhận diện các điểm nghẽn và rủi ro tiềm ẩn trong vận hành
-
-Mặc dù hệ thống đã hoạt động ổn định và hiện đại, qua quá trình nghiên cứu thực tế, chúng tôi ghi nhận một số điểm cần lưu ý:
-
-1. **Độ trễ cập nhật Image khi mất Webhook (Polling Latency):**
-   * Trong trường hợp mạng nội bộ gặp sự cố làm gián đoạn Webhook từ Harbor sang `argocd-image-updater`, hệ thống sẽ fallback về cơ chế quét định kỳ (Polling chu kỳ 2-3 phút). Điều này có thể khiến lập trình viên cảm giác việc deploy bị chậm.
-2. **Quy trình Rollback khi bật cơ chế Auto-Image Updater:**
-   * Nếu một phiên bản Image mới bị lỗi CrashLoopBackOff trong runtime, lập trình viên nhấn nút "Rollback" trên giao diện Web UI ArgoCD thì chỉ sau 1-2 phút, `argocd-image-updater` sẽ phát hiện tag mới trên Harbor và tự động commit ghi đè lại phiên bản lỗi.
-   * **Quy trình chuẩn cần tuân thủ:** Bắt buộc phải thực hiện Rollback bằng cách `git revert` commit trên Git Manifest hoặc gắn nhãn chặn tag lỗi trên Harbor.
-3. **Phụ thuộc vào tính sẵn sàng của HashiCorp Vault:**
-   * Nếu cụm Vault bị niêm phong (Sealed) hoặc gặp sự cố mạng, các Pod mới khởi tạo sẽ không thể lấy được `regcred` (gây lỗi `ImagePullBackOff`) và không inject được runtime secret (gây lỗi `Init:Error`).
-
----
-
-### 5.3. Đề xuất 3 sáng kiến nâng cấp hệ thống trong giai đoạn tiếp theo
-
-Để đưa hệ thống GitOps của công ty đạt mức độ hoàn thiện cao nhất (**State-of-the-Art**), chúng tôi đề xuất lộ trình 3 bước tối ưu hóa:
-
-```
-                  ┌────────────────────────────────────────────────────────┐
-                  │           LỘ TRÌNH 3 BƯỚC TỐI ƯU HÓA GITOPS            │
-                  └────────────────────────────────────────────────────────┘
-                                              │
-                      ┌───────────────────────┼───────────────────────┐
-                      ▼                       ▼                       ▼
-           ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
-           │   BƯỚC 1: CANARY    │ │  BƯỚC 2: CHATOPS    │ │   BƯỚC 3: CI LINT   │
-           │    DEPLOYMENT       │ │   NOTIFICATIONS     │ │   & OPA POLICY      │
-           ├─────────────────────┤ ├─────────────────────┤ ├─────────────────────┤
-           │ Tích hợp Argo       │ │ Tích hợp ArgoCD     │ │ Bổ sung Kubeconform │
-           │ Rollouts phân luồng │ │ Notifications gửi   │ │ & Conftest chặn lỗi │
-           │ traffic tự động &   │ │ cảnh báo Sync qua   │ │ cấu hình trước khi  │
-           │ tự rollback theo 5xx│ │ Telegram/Slack/Teams│ │ merge vào Git.      │
-           └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
-```
-
-#### 🚀 Sáng kiến 1: Triển khai Progressive Delivery với Argo Rollouts (Canary Deployment)
-* **Hiện trạng:** Hệ thống đang sử dụng chiến lược Rolling Update mặc định của Kubernetes. Khi deploy phiên bản mới, nếu có lỗi logic bên trong code không làm sập Pod (nhưng trả về HTTP 500), hệ thống vẫn coi là thành công và thay thế toàn bộ pods cũ.
-* **Giải pháp:** Tích hợp **Argo Rollouts** kết hợp với Prometheus Metrics.
-  * Khi có bản mới, hệ thống chỉ phân luồng 10% traffic của người dùng thật vào Pod mới.
-  * Tự động đo lường tỷ lệ lỗi (Error Rate) và độ trễ (Latency). Nếu tỷ lệ lỗi < 0.1%, tự động tăng dần lên 20% $\rightarrow$ 50% $\rightarrow$ 100%. Nếu tỷ lệ lỗi tăng vọt, hệ thống **tự động Rollback 100% về bản cũ trong vòng 5 giây** mà không cần con người can thiệp.
-
-#### 🔔 Sáng kiến 2: Tự động hóa Thông báo Vận hành qua ChatOps (ArgoCD Notifications)
-* **Giải pháp:** Cài đặt module `argocd-notifications` kết nối Webhook trực tiếp tới các kênh Telegram / Slack / Mattermost của từng dự án.
-* **Nội dung thông báo:**
-  * Thông báo ngay khi ứng dụng bắt đầu Sync, kèm theo tên dịch vụ, môi trường, Commit Message và Người thực hiện.
-  * Gửi cảnh báo đỏ (Alert) kèm nguyên nhân chi tiết nếu Pod rơi vào trạng thái `Degraded`, `CrashLoopBackOff` hoặc `OutOfSync` kéo dài quá 5 phút.
-
-#### 🛡️ Sáng kiến 3: Bổ sung Cổng Kiểm thử Cấu hình Tự động (CI Manifest Linting & OPA Policy)
-* **Giải pháp:** Thiết lập pipeline CI tự động cho repo `manifest/{project}.git`:
-  * Sử dụng **Kubeconform** để kiểm tra tính hợp lệ cú pháp của Schema Kubernetes.
-  * Sử dụng **Conftest (Open Policy Agent - OPA)** để kiểm tra các chính sách an toàn: Bắt buộc phải có giới hạn CPU/RAM (Resource Limits), không được chạy container dưới quyền `root`, và kiểm tra Ingress Domain không được trùng lặp.
-  * Nếu vi phạm, pipeline CI sẽ chặn không cho Merge Commit vào Git Manifest.
-
----
-
-## KẾT LUẬN & KIẾN NGHỊ
-
-Hệ thống GitOps trên nền tảng **ArgoCD + HashiCorp Vault + Helm Poly v3 + Kubernetes** hiện tại của công ty là một giải pháp kiến trúc xuất sắc, hiện đại và tuân thủ chặt chẽ các nguyên tắc bảo mật DevSecOps tiêu chuẩn quốc tế. 
-
-Hệ thống đã giải quyết triệt để bài toán:
-1. **Tự động hóa hoàn toàn luồng phân phối phần mềm từ Source Code đến Production.**
-2. **Loại bỏ hoàn toàn rủi ro lộ lọt Secret trên Git và CI Runners.**
-3. **Chuẩn hóa hạ tầng, giảm thiểu thời gian onboarding và chi phí vận hành cho các đội ngũ phát triển.**
-
-**Kiến nghị Ban Giám đốc & Trưởng bộ phận:**
-* Tiếp tục duy trì và nhân rộng mô hình GitOps chuẩn này cho 100% các dự án phần mềm, game và dịch vụ mới của công ty.
-* Phê duyệt chủ trương triển khai thử nghiệm **Sáng kiến 1 (Argo Rollouts Canary Deployment)** và **Sáng kiến 2 (ChatOps Notifications)** trên môi trường Staging/Production trong Quý IV/2026 nhằm tiếp tục nâng cao độ ổn định và trải nghiệm vận hành cho toàn hệ thống.
-
----
-*Báo cáo được lập và lưu trữ chính thức tại kho tài liệu kỹ thuật nội bộ.*
+### 5.2. Đề xuất Lộ trình Nâng cấp Tiếp theo
+1. **Nghiên cứu áp dụng Progressive Delivery (Argo Rollouts):** Có thể cân nhắc triển khai chiến lược Canary Release nhằm phân luồng lưu lượng truy cập theo từng giai đoạn và tự động kích hoạt Rollback tức thời nếu phát hiện tỷ lệ lỗi dịch vụ (HTTP 5xx, latency) vượt ngưỡng cho phép.
+2. **Tích hợp ChatOps (ArgoCD Notifications):** Có thể mở rộng tích hợp cơ chế tự động gửi thông báo trạng thái đồng bộ và cảnh báo sự cố Pod (`CrashLoopBackOff`, `Degraded`) về kênh liên lạc nội bộ (Telegram/Slack) của từng nhóm phát triển để hỗ trợ phản ứng nhanh.

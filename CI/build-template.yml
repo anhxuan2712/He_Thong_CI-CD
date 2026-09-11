@@ -1,0 +1,54 @@
+.build_template: &build
+  image: docker:$DOCKER_VERSION
+  before_script:
+    - docker info
+    - docker images
+    - echo $REGISTRY_PUSH_USER
+    - echo $REGISTRY_PUSH_PASSWORD
+    - echo $CI_REGISTRY
+    - docker login -u "$REGISTRY_PUSH_USER" -p "$REGISTRY_PUSH_PASSWORD" "$CI_REGISTRY"
+  script:
+    - export APP_VERSION=$ENV_NAME-$(date +'%Y-%m-%d_%H-%M-%S')-`[ -n "$CI_COMMIT_TAG" ] && echo $CI_COMMIT_TAG || echo $CI_COMMIT_SHORT_SHA` && echo $APP_VERSION
+    - docker build -t "$CI_REGISTRY_IMAGE:$APP_VERSION" -t "$CI_REGISTRY_IMAGE"  $BUILD_FOLDER -f $DOCKERFILE
+    - docker push "$CI_REGISTRY_IMAGE:$APP_VERSION"
+  services:
+    - name: docker:$DOCKER_DIND_VERSION
+      alias: docker
+  allow_failure: false
+  tags: [build]
+
+variables:
+  BUILD_FOLDER: "."
+  DOCKERFILE: "Dockerfile"
+  CI_REGISTRY: "registry.ftech.ai"
+  DOCKER_VERSION: "20.10.16"
+  DOCKER_DIND_VERSION: "20.10.16-dind"
+
+build-staging:
+  stage: build
+  variables:
+    ENV_NAME: staging
+  only:
+    - staging
+  <<: *build
+
+build-dev:
+  stage: build
+  variables:
+    ENV_NAME: dev
+  only:
+    - dev
+    - develop
+  <<: *build
+
+build-prod:
+  stage: build
+  variables:
+    ENV_NAME: prod
+  only:
+    - main
+    - master
+    - prod
+    - tags
+  <<: *build
+  when: manual
