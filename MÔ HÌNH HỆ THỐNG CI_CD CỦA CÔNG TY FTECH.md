@@ -95,7 +95,7 @@ Hệ thống CI/CD của FTECH được xây dựng trên nền tảng **GitLab 
 ### 2. Đọc và hợp nhất cấu hình (Config Parsing & Include Merging)
 - **Đọc file cấu hình gốc:** GitLab CI Parser đọc file `.gitlab-ci.yml` tại thư mục gốc của repository dự án.
 - **Kéo template tập trung (`include`):** Khi gặp chỉ thị `include`, GitLab sẽ phân giải và tải các file template từ repository trung tâm `gitlab-ci/ci-pipeline`:
-  - `build-common/build-template.yml` (hoặc `build/build-template.yml`)
+  - `build-common/build-template.yml`
   - `devsecops/devsecops-template.yml`
 - **Hợp nhất (Merge Engine):** 
   - GitLab thực hiện hợp nhất toàn bộ khai báo biến (`variables`), cấu hình job ẩn định nghĩa khuôn mẫu (`.build_template: &build`), các merge key (`<<: *build`), và các job cụ thể vào một cây cấu hình pipeline thống nhất.
