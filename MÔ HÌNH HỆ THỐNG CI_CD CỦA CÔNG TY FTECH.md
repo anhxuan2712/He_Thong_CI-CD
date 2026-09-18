@@ -370,24 +370,68 @@ Sau khi SBOM được đẩy lên thành công:
 
 ---
 
-## 7. SO SÁNH ĐẶC TÍNH KỸ THUẬT GIỮA 4 STAGES CỐT LÕI
+## 7. PHẦN E: STAGE `gitlabci-analyser` (GIÁM SÁT HIỆU NĂNG VÀ ĐỘ TRỄ RUNNER - TUỲ CHỌN)
 
-| Tiêu chí | 1. Stage `detect-secrets` | 2. Stage `build` | 3. Stage `dependency-check` | 4. Stage `upload-bom` |
-| :--- | :--- | :--- | :--- | :--- |
-| **Mục đích chính** | Phát hiện mật khẩu, key, token rò rỉ | Đóng gói mã nguồn & push image Harbor | Quét lỗ hổng SCA & tạo SBOM CycloneDX | Đẩy SBOM lên OWASP Dependency-Track |
-| **Tag Runner** | `[devsecops]` | `[build]` | `[devsecops]` | `[devsecops]` |
-| **Kiểu Container** | Single Container độc lập | Multi-container (Docker-in-Docker) | Single Container độc lập | Single Container độc lập (siêu nhẹ) |
-| **Image sử dụng** | `.../detect-secrets:v2.8` | `docker:20.10.16` + `docker:dind` | `aquasec/trivy:0.56.1` | `curlimages/curl` |
-| **Quyền thực thi** | Tiêu chuẩn (Non-privileged) | `privileged: true` (Docker Daemon) | Tiêu chuẩn (Non-privileged) | Tiêu chuẩn (Non-privileged) |
-| **Xử lý thư mục `.git`**| `rm -rf .git/` trước khi quét | Giữ nguyên để phục vụ versioning | Giữ nguyên quét mã nguồn & lock files | Kế thừa artifact từ stage trước |
-| **Đầu vào (Input)** | Toàn bộ mã nguồn commit | Mã nguồn + `Dockerfile` | Thư mục mã nguồn & Dependency manifests | File artifact `result1.json` |
-| **Đầu ra (Output)** | Log phát hiện secret | Docker Image trên Harbor | File SBOM `result1.json` (Artifact) | HTTP Response từ Dependency-Track API |
-| **Cấu hình `allow_failure`**| `false` (Phát hiện secret là dừng) | `false` (Lỗi build là dừng pipeline) | `true` (Ghi nhận cảnh báo) | `true` (Ghi nhận cảnh báo) |
-| **Cơ chế kích hoạt** | Tự động trên mọi nhánh | Tùy nhánh (`dev`/`staging`/`manual prod`)| Tự động kế thừa sau `build` | Tự động kế thừa sau `dependency-check` |
+*Stage này đóng vai trò là công cụ quan sát (Observability & Profiling) cho hạ tầng CI/CD, theo dõi thời gian chờ hàng đợi và thời lượng thực thi của các Job nhằm phát hiện sớm tình trạng quá tải hoặc nghẽn tài nguyên Runner.*
+
+### E1. Cấu hình Job trong `devsecops-template.yml`
+
+```yaml
+gitlabci-analyser:
+  stage: gitlabci-analyser
+  image:
+    name: registry.ftech.ai/public/is-chart/gitlabci-analyser:v0.2.0
+    entrypoint: [""]
+  script:
+    - python /tools/job-analyser.py --max_queue 30 --max_duration 300
+  tags: [devsecops]
+  allow_failure: true
+```
+
+### E2. Runner nhận Job và Chuẩn bị Môi trường
+- **Tag tiếp nhận:** Runner có tag `[devsecops]`.
+- **Mô hình Container:** Single Container chạy trực tiếp image nội bộ `registry.ftech.ai/public/is-chart/gitlabci-analyser:v0.2.0` (đóng gói sẵn runtime Python cùng các script telemetry phân tích CI/CD).
+- **Entrypoint Override (`entrypoint: [""]`):** Xóa entrypoint mặc định của Docker image để GitLab Runner thực thi trực tiếp câu lệnh script.
+
+### E3. Phân tích chi tiết cơ chế hoạt động của `job-analyser.py`
+
+Container thực thi tập lệnh:
+```sh
+python /tools/job-analyser.py --max_queue 30 --max_duration 300
+```
+
+*Ý nghĩa kỹ thuật của các tham số phân tích:*
+- `--max_queue 30` (Ngưỡng hàng đợi - 30 giây):
+  - Đo lường khoảng thời gian từ lúc Job được tạo (`created`) cho tới khi Runner tiếp nhận và khởi động (`started/running`).
+  - **Mục đích:** Đánh giá độ khả dụng của cụm Runner. Nếu thời gian chờ $> 30\text{s}$, công cụ ghi nhận cảnh báo Runner pool đang bị nghẽn (thiếu hụt số lượng runner hoặc concurrency đạt mức tối đa).
+- `--max_duration 300` (Ngưỡng thời lượng thực thi - 300 giây / 5 phút):
+  - Đo lường tổng thời gian chạy thực tế của các Job trong Pipeline.
+  - **Mục đích:** Phát hiện các tác vụ bị treo (hanging tasks), build quá lâu do tải thư viện chậm hoặc không tận dụng Docker layer caching, từ đó hỗ trợ đội ngũ tối ưu thời gian phản hồi của CI.
+
+### E4. Tính chất và Cách kích hoạt
+- **Chính sách `allow_failure: true`:** Stage này chỉ mang tính chất đo lường và cảnh báo hiệu năng, không chặn đứng luồng phát hành phần mềm nếu xảy ra lỗi.
+- **Tuỳ chọn kích hoạt (Optional):** Dự án có nhu cầu giám sát hiệu năng Runner chỉ cần khai báo thêm `- gitlabci-analyser` vào trường `stages:` trong file `.gitlab-ci.yml` của dự án.
 
 ---
 
-## 8. CƠ CHẾ PHẢN HỒI VÀ QUY TRÌNH XỬ LÝ SỰ CỐ TOÀN DIỆN (FEEDBACK LOOP)
+## 8. SO SÁNH ĐẶC TÍNH KỸ THUẬT GIỮA CÁC STAGES TRONG HỆ THỐNG CI
+
+| Tiêu chí | 1. Stage `detect-secrets` | 2. Stage `build` | 3. Stage `dependency-check` | 4. Stage `upload-bom` | 5. Stage `gitlabci-analyser` (Tùy chọn) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Mục đích chính** | Phát hiện mật khẩu, key, token rò rỉ | Đóng gói mã nguồn & push image Harbor | Quét lỗ hổng SCA & tạo SBOM CycloneDX | Đẩy SBOM lên OWASP Dependency-Track | Giám sát độ trễ hàng đợi & thời lượng chạy Job |
+| **Tag Runner** | `[devsecops]` | `[build]` | `[devsecops]` | `[devsecops]` | `[devsecops]` |
+| **Kiểu Container** | Single Container độc lập | Multi-container (Docker-in-Docker) | Single Container độc lập | Single Container độc lập (siêu nhẹ) | Single Container độc lập |
+| **Image sử dụng** | `.../detect-secrets:v2.8` | `docker:20.10.16` + `docker:dind` | `aquasec/trivy:0.56.1` | `curlimages/curl` | `.../gitlabci-analyser:v0.2.0` |
+| **Quyền thực thi** | Tiêu chuẩn (Non-privileged) | `privileged: true` (Docker Daemon) | Tiêu chuẩn (Non-privileged) | Tiêu chuẩn (Non-privileged) | Tiêu chuẩn (Non-privileged) |
+| **Xử lý thư mục `.git`**| `rm -rf .git/` trước khi quét | Giữ nguyên để phục vụ versioning | Giữ nguyên quét mã nguồn & lock files | Kế thừa artifact từ stage trước | Giữ nguyên thư mục workspace |
+| **Đầu vào (Input)** | Toàn bộ mã nguồn commit | Mã nguồn + `Dockerfile` | Thư mục mã nguồn & Dependency manifests | File artifact `result1.json` | Metadata & Thời gian thực thi của Job/Runner |
+| **Đầu ra (Output)** | Log phát hiện secret | Docker Image trên Harbor | File SBOM `result1.json` (Artifact) | HTTP Response từ Dependency-Track API | Báo cáo/Log hiệu năng và cảnh báo nghẽn |
+| **Cấu hình `allow_failure`**| `false` (Phát hiện secret là dừng) | `false` (Lỗi build là dừng pipeline) | `true` (Ghi nhận cảnh báo) | `true` (Ghi nhận cảnh báo) | `true` (Không ảnh hưởng luồng build) |
+| **Cơ chế kích hoạt** | Tự động trên mọi nhánh | Tùy nhánh (`dev`/`staging`/`manual prod`)| Tự động kế thừa sau `build` | Tự động kế thừa sau `dependency-check` | Tự chọn khi khai báo thêm vào `stages:` |
+
+---
+
+## 9. CƠ CHẾ PHẢN HỒI VÀ QUY TRÌNH XỬ LÝ SỰ CỐ TOÀN DIỆN (FEEDBACK LOOP)
 
 Khi một trong các stage gặp sự cố (`Failed` hoặc phát hiện cảnh báo rủi ro), Developer theo dõi trên giao diện GitLab CI/CD và xử lý theo quy trình chuẩn sau:
 
