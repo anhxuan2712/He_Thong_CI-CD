@@ -370,7 +370,83 @@ Sau khi SBOM được đẩy lên thành công:
 
 ---
 
-## 7. PHẦN E: STAGE `gitlabci-analyser` (GIÁM SÁT HIỆU NĂNG VÀ ĐỘ TRỄ RUNNER - TUỲ CHỌN)
+## 7. PHẦN E: STAGE `sonarqube-check` (PHÂN TÍCH CHẤT LƯỢNG MÃ NGUỒN VỚI SONARQUBE)
+
+*Stage này chịu trách nhiệm đẩy toàn bộ mã nguồn dự án lên nền tảng SonarQube Server nội bộ FTECH (`sonarqube.dev.ftech.ai`) để phân tích tĩnh (Static Analysis) toàn diện: phát hiện Bugs, Code Smells, Security Hotspots và đo lường Technical Debt.*
+
+### E1. Cấu hình Job trong `devsecops-template.yml`
+
+```yaml
+sonarqube-check:
+  stage: sonarqube-check
+  image:
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"
+    SONAR_HOST_URL: "https://sonarqube.dev.ftech.ai"
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script:
+    - sonar-scanner -Dsonar.projectKey=$SONAR_PROJECT_KEY -Dsonar.qualitygate.wait=$SONAR_QUALITYGATE_WAIT
+  tags: [devsecops]
+  allow_failure: true
+```
+
+### E2. Runner nhận Job và Chuẩn bị Môi trường
+- **Tag tiếp nhận:** Runner có tag `[devsecops]`.
+- **Mô hình Container:** Single Container chạy image chính thức `sonarsource/sonar-scanner-cli:latest` từ Docker Hub — bộ công cụ phân tích tĩnh (static analyzer) của SonarSource.
+- **Entrypoint Override (`entrypoint: [""]`):** Xóa entrypoint mặc định của image để GitLab Runner thực thi trực tiếp lệnh shell.
+
+### E3. Phân tích chi tiết cấu hình và biến môi trường
+
+#### Khối `variables`
+| Biến | Giá trị | Ý nghĩa |
+| :--- | :--- | :--- |
+| `SONAR_USER_HOME` | `${CI_PROJECT_DIR}/.sonar` | Thư mục làm việc nội bộ của SonarQube Scanner trong workspace của job. |
+| `GIT_DEPTH` | `"0"` | Yêu cầu GitLab clone **toàn bộ lịch sử Git** (unshallow clone). Cần thiết để SonarQube tính toán chính xác chỉ số blame, date, và phân tích sự thay đổi của code theo thời gian. |
+| `SONAR_HOST_URL` | `https://sonarqube.dev.ftech.ai` | Địa chỉ SonarQube Server nội bộ FTECH mà scanner sẽ kết nối gửi kết quả phân tích. |
+
+#### Khối `cache`
+```yaml
+cache:
+  key: "${CI_JOB_NAME}"
+  paths:
+    - .sonar/cache
+```
+- **Cơ chế hoạt động:** GitLab Runner lưu trữ thư mục `.sonar/cache` (chứa dữ liệu index tĩnh, các rule đã tải về từ SonarQube Server) vào bộ nhớ đệm (cache) dùng chung giữa các lần chạy pipeline.
+- **Lợi ích:** Tránh phải tải lại toàn bộ rule set và metadata từ server mỗi lần chạy, giảm đáng kể thời gian thực thi của job từ các lần chạy thứ 2 trở đi.
+
+### E4. Phân tích chi tiết tập lệnh thực thi
+
+```sh
+sonar-scanner -Dsonar.projectKey=$SONAR_PROJECT_KEY -Dsonar.qualitygate.wait=$SONAR_QUALITYGATE_WAIT
+```
+
+*Ý nghĩa kỹ thuật của các tham số:*
+- `-Dsonar.projectKey=$SONAR_PROJECT_KEY`: Khoá định danh duy nhất (Unique Key) của dự án trên SonarQube Server. Biến `$SONAR_PROJECT_KEY` được khai báo dưới dạng **Protected Variable** trong phần *Settings > CI/CD > Variables* của dự án trên GitLab, tránh lộ thông tin trong cấu hình file.
+- `-Dsonar.qualitygate.wait=$SONAR_QUALITYGATE_WAIT`: Nếu biến này có giá trị `true`, scanner sẽ **đợi (blocking)** kết quả đánh giá từ SonarQube Quality Gate (cổng chất lượng) trước khi kết thúc job và trả về exit code tương ứng. Nếu `false` hoặc không khai báo, scanner chỉ tải kết quả lên mà không chờ đánh giá.
+
+### E5. Cơ chế Quality Gate
+SonarQube Quality Gate là bộ tiêu chí chất lượng tùy chỉnh được thiết lập bởi DevSecOps/Lead, ví dụ:
+- Tỷ lệ Code Coverage tối thiểu (ví dụ: $\geq 80\%$).
+- Số lượng Bugs mới = 0.
+- Số lượng Security Hotspots chưa xem xét = 0.
+
+**Nếu Quality Gate PASS:** Job kết thúc thành công, Pipeline chuyển tiếp stage tiếp theo.
+**Nếu Quality Gate FAIL:** Do cấu hình `allow_failure: true`, job báo cảnh báo màu cam (Warning) nhưng **không làm gián đoạn Pipeline** — đảm bảo luồng phát hành không bị chặn bởi vấn đề chất lượng code trong ngắn hạn.
+
+### E6. Tích hợp cấu hình dự án phía GitLab
+Để stage `sonarqube-check` hoạt động chính xác, dự án cần khai báo 2 biến trong *Settings > CI/CD > Variables*:
+1. **`SONAR_PROJECT_KEY`** — Khóa định danh của project trên SonarQube.
+2. **`SONAR_QUALITYGATE_WAIT`** — Đặt `true` để chờ kết quả Quality Gate, hoặc `false` để chỉ đẩy kết quả lên.
+
+---
+
+## 8. PHẦN F: STAGE `gitlabci-analyser` (GIÁM SÁT HIỆU NĂNG VÀ ĐỘ TRỄ RUNNER - TUỲ CHỌN)
 
 *Stage này đóng vai trò là công cụ quan sát (Observability & Profiling) cho hạ tầng CI/CD, theo dõi thời gian chờ hàng đợi và thời lượng thực thi của các Job nhằm phát hiện sớm tình trạng quá tải hoặc nghẽn tài nguyên Runner.*
 
@@ -388,12 +464,12 @@ gitlabci-analyser:
   allow_failure: true
 ```
 
-### E2. Runner nhận Job và Chuẩn bị Môi trường
+### F2. Runner nhận Job và Chuẩn bị Môi trường
 - **Tag tiếp nhận:** Runner có tag `[devsecops]`.
 - **Mô hình Container:** Single Container chạy trực tiếp image nội bộ `registry.ftech.ai/public/is-chart/gitlabci-analyser:v0.2.0` (đóng gói sẵn runtime Python cùng các script telemetry phân tích CI/CD).
 - **Entrypoint Override (`entrypoint: [""]`):** Xóa entrypoint mặc định của Docker image để GitLab Runner thực thi trực tiếp câu lệnh script.
 
-### E3. Phân tích chi tiết cơ chế hoạt động của `job-analyser.py`
+### F3. Phân tích chi tiết cơ chế hoạt động của `job-analyser.py`
 
 Container thực thi tập lệnh:
 ```sh
@@ -408,30 +484,30 @@ python /tools/job-analyser.py --max_queue 30 --max_duration 300
   - Đo lường tổng thời gian chạy thực tế của các Job trong Pipeline.
   - **Mục đích:** Phát hiện các tác vụ bị treo (hanging tasks), build quá lâu do tải thư viện chậm hoặc không tận dụng Docker layer caching, từ đó hỗ trợ đội ngũ tối ưu thời gian phản hồi của CI.
 
-### E4. Tính chất và Cách kích hoạt
+### F4. Tính chất và Cách kích hoạt
 - **Chính sách `allow_failure: true`:** Stage này chỉ mang tính chất đo lường và cảnh báo hiệu năng, không chặn đứng luồng phát hành phần mềm nếu xảy ra lỗi.
 - **Tuỳ chọn kích hoạt (Optional):** Dự án có nhu cầu giám sát hiệu năng Runner chỉ cần khai báo thêm `- gitlabci-analyser` vào trường `stages:` trong file `.gitlab-ci.yml` của dự án.
 
 ---
 
-## 8. SO SÁNH ĐẶC TÍNH KỸ THUẬT GIỮA CÁC STAGES TRONG HỆ THỐNG CI
+## 9. SO SÁNH ĐẶC TÍNH KỸ THUẬT GIỮA CÁC STAGES TRONG HỆ THỐNG CI
 
-| Tiêu chí | 1. Stage `detect-secrets` | 2. Stage `build` | 3. Stage `dependency-check` | 4. Stage `upload-bom` | 5. Stage `gitlabci-analyser` (Tùy chọn) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mục đích chính** | Phát hiện mật khẩu, key, token rò rỉ | Đóng gói mã nguồn & push image Harbor | Quét lỗ hổng SCA & tạo SBOM CycloneDX | Đẩy SBOM lên OWASP Dependency-Track | Giám sát độ trễ hàng đợi & thời lượng chạy Job |
-| **Tag Runner** | `[devsecops]` | `[build]` | `[devsecops]` | `[devsecops]` | `[devsecops]` |
-| **Kiểu Container** | Single Container độc lập | Multi-container (Docker-in-Docker) | Single Container độc lập | Single Container độc lập (siêu nhẹ) | Single Container độc lập |
-| **Image sử dụng** | `.../detect-secrets:v2.8` | `docker:20.10.16` + `docker:dind` | `aquasec/trivy:0.56.1` | `curlimages/curl` | `.../gitlabci-analyser:v0.2.0` |
-| **Quyền thực thi** | Tiêu chuẩn (Non-privileged) | `privileged: true` (Docker Daemon) | Tiêu chuẩn (Non-privileged) | Tiêu chuẩn (Non-privileged) | Tiêu chuẩn (Non-privileged) |
-| **Xử lý thư mục `.git`**| `rm -rf .git/` trước khi quét | Giữ nguyên để phục vụ versioning | Giữ nguyên quét mã nguồn & lock files | Kế thừa artifact từ stage trước | Giữ nguyên thư mục workspace |
-| **Đầu vào (Input)** | Toàn bộ mã nguồn commit | Mã nguồn + `Dockerfile` | Thư mục mã nguồn & Dependency manifests | File artifact `result1.json` | Metadata & Thời gian thực thi của Job/Runner |
-| **Đầu ra (Output)** | Log phát hiện secret | Docker Image trên Harbor | File SBOM `result1.json` (Artifact) | HTTP Response từ Dependency-Track API | Báo cáo/Log hiệu năng và cảnh báo nghẽn |
-| **Cấu hình `allow_failure`**| `false` (Phát hiện secret là dừng) | `false` (Lỗi build là dừng pipeline) | `true` (Ghi nhận cảnh báo) | `true` (Ghi nhận cảnh báo) | `true` (Không ảnh hưởng luồng build) |
-| **Cơ chế kích hoạt** | Tự động trên mọi nhánh | Tùy nhánh (`dev`/`staging`/`manual prod`)| Tự động kế thừa sau `build` | Tự động kế thừa sau `dependency-check` | Tự chọn khi khai báo thêm vào `stages:` |
+| Tiêu chí | 1. `detect-secrets` | 2. `build` | 3. `dependency-check` | 4. `upload-bom` | 5. `sonarqube-check` | 6. `gitlabci-analyser` (Tùy chọn) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Mục đích chính** | Phát hiện mật khẩu, key, token rò rỉ | Đóng gói mã nguồn & push image Harbor | Quét lỗ hổng SCA & tạo SBOM CycloneDX | Đẩy SBOM lên OWASP Dependency-Track | Phân tích chất lượng & bảo mật mã nguồn tĩnh | Giám sát độ trễ hàng đợi & thời lượng chạy Job |
+| **Tag Runner** | `[devsecops]` | `[build]` | `[devsecops]` | `[devsecops]` | `[devsecops]` | `[devsecops]` |
+| **Kiểu Container** | Single Container | Multi-container (DinD) | Single Container | Single Container siêu nhẹ | Single Container | Single Container |
+| **Image sử dụng** | `.../detect-secrets:v2.8` | `docker:20.10.16` + `docker:dind` | `aquasec/trivy:0.56.1` | `curlimages/curl` | `sonarsource/sonar-scanner-cli:latest` | `.../gitlabci-analyser:v0.2.0` |
+| **Quyền thực thi** | Non-privileged | `privileged: true` | Non-privileged | Non-privileged | Non-privileged | Non-privileged |
+| **Xử lý thư mục `.git`** | `rm -rf .git/` trước khi quét | Giữ nguyên (versioning) | Giữ nguyên (quét dependency) | Kế thừa artifact | `GIT_DEPTH: 0` (clone đầy đủ) | Giữ nguyên workspace |
+| **Đầu vào (Input)** | Toàn bộ mã nguồn commit | Mã nguồn + `Dockerfile` | Thư mục mã nguồn & lock files | File artifact `result1.json` | Toàn bộ mã nguồn & lịch sử Git | Metadata & thời gian thực thi Job/Runner |
+| **Đầu ra (Output)** | Log phát hiện secret | Docker Image trên Harbor | File SBOM `result1.json` (Artifact) | HTTP Response từ Dependency-Track API | Báo cáo phân tích chất lượng trên SonarQube | Log hiệu năng và cảnh báo nghẽn Runner |
+| **Cấu hình `allow_failure`** | `false` (dừng pipeline) | `false` (dừng pipeline) | `true` (cảnh báo) | `true` (cảnh báo) | `true` (cảnh báo) | `true` (không ảnh hưởng build) |
+| **Cơ chế kích hoạt** | Tự động trên mọi nhánh | Tùy nhánh (`dev`/`staging`/`manual prod`) | Tự động sau `build` | Tự động sau `dependency-check` | Tự động sau `upload-bom` | Tùy chọn khi thêm vào `stages:` |
 
 ---
 
-## 9. CƠ CHẾ PHẢN HỒI VÀ QUY TRÌNH XỬ LÝ SỰ CỐ TOÀN DIỆN (FEEDBACK LOOP)
+## 10. CƠ CHẾ PHẢN HỒI VÀ QUY TRÌNH XỬ LÝ SỰ CỐ TOÀN DIỆN (FEEDBACK LOOP)
 
 Khi một trong các stage gặp sự cố (`Failed` hoặc phát hiện cảnh báo rủi ro), Developer theo dõi trên giao diện GitLab CI/CD và xử lý theo quy trình chuẩn sau:
 
