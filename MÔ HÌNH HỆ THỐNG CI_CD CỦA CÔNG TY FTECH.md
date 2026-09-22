@@ -512,31 +512,31 @@ python /tools/job-analyser.py --max_queue 30 --max_duration 300
 Khi một trong các stage gặp sự cố (`Failed` hoặc phát hiện cảnh báo rủi ro), Developer theo dõi trên giao diện GitLab CI/CD và xử lý theo quy trình chuẩn sau:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                              QUY TRÌNH PHẢN HỒI VÀ XỬ LÝ SỰ CỐ (FEEDBACK LOOP)                          │
-└───────────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
-                                                    │
-        ┌───────────────────────────┬───────────────┴───────────────┬───────────────────────────┐
-        ▼                           ▼                               ▼                           ▼
-[STAGE DETECT-SECRETS]        [STAGE BUILD]               [STAGE DEPENDENCY-CHECK]      [STAGE UPLOAD-BOM]
-        │                           │                               │                           │
-        ▼                           ▼                               ▼                           ▼
-┌───────────────────────┐   ┌───────────────────────┐   ┌───────────────────────┐   ┌───────────────────────┐
-│ Phân loại rủi ro:     │   │ Nguyên nhân:          │   │ Phân tích CVEs:       │   │ Nguyên nhân:          │
-│ • Secret thật:        │   │ • Dockerfile sai      │   │ • Nâng cấp version    │   │ • Sai API Key         │
-│   - Thu hồi / rotate  │   │ • Sai user/pass Harbor│   │   thư viện trong lock │   │   DEPENDENCY_TRACK_KEY│
-│   - Đưa vào CI/CD Vars│   │ • Lỗi build code      │   │ • Nếu chưa có patch:  │   │ • Lỗi kết nối mạng    │
-│ • False Positive:     │   │ • Registry đầy bộ nhớ │   │   đánh giá mitigation │   │ • Server bảo trì      │
-│   - Thêm EXCLUDE_*    │   │                       │   │                       │   │                       │
-└───────────┬───────────┘   └───────────┬───────────┘   └───────────┬───────────┘   └───────────┬───────────┘
-            │                           │                           │                           │
-            └───────────────────────────┴─────────────┬─────────────┴───────────────────────────┘
-                                                      │
-                                                      ▼
-                                      [Developer Commit & Git Push lại]
-                                                      │
-                                                      ▼
-                                  [GitLab tạo Pipeline MỚI chạy lại từ đầu]
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                 QUY TRÌNH PHẢN HỒI VÀ XỬ LÝ SỰ CỐ (FEEDBACK LOOP)                                                 │
+└─────────────────────────────────────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────────┘
+                                                                          │
+        ┌─────────────────────────┬─────────────────────────┬─────────────┴───────────┬─────────────────────────┬─────────────────────────┐
+        ▼                         ▼                         ▼                         ▼                         ▼                         ▼
+[STAGE DETECT-SECRETS]      [STAGE BUILD]         [STAGE DEPENDENCY-CHECK]   [STAGE UPLOAD-BOM]       [STAGE SONARQUBE-CHECK]    [STAGE GITLABCI-ANALYSER]
+        │                         │                         │                         │                         │                         │
+        ▼                         ▼                         ▼                         ▼                         ▼                         ▼
+┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
+│ Phân loại rủi ro:     │ │ Nguyên nhân:          │ │ Phân tích CVEs:       │ │ Nguyên nhân:          │ │ Chất lượng mã nguồn:  │ │ Giám sát hiệu năng:   │
+│ • Secret thật:        │ │ • Dockerfile sai      │ │ • Nâng cấp version    │ │ • Sai API Key         │ │ • Quality Gate Failed │ │ • Queue time > 30s    │
+│   - Thu hồi / rotate  │ │ • Sai user/pass Harbor│ │   thư viện trong lock │ │   DEPENDENCY_TRACK_KEY│ │   (Coverage thấp, Bug)│ │   (Cụm Runner nghẽn)│
+│   - Đưa vào CI/CD Vars│ │ • Lỗi build code      │ │ • Nếu chưa có patch:  │ │ • Lỗi kết nối mạng    │ │ • Lỗi kết nối server  │ │ • Duration > 300s   │
+│ • False Positive:     │ │ • Registry đầy bộ nhớ │ │   đánh giá mitigation │ │ • Server bảo trì      │ │   hoặc sai token      │ │   (Job bị treo/chậm)│
+│   - Thêm EXCLUDE_*    │ │                       │ │                       │ │                       │ │ • Fix code & đẩy lại  │ │ • Tối ưu pipeline   │
+└───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘
+            │                         │                         │                         │                         │                         │
+            └─────────────────────────┴─────────────────────────┴────────────┬────────────┴─────────────────────────┴─────────────────────────┘
+                                                                             │
+                                                                             ▼
+                                                             [Developer Commit & Git Push lại]
+                                                                             │
+                                                                             ▼
+                                                         [GitLab tạo Pipeline MỚI chạy lại từ đầu]
 ```
 
 1. **Trường hợp Stage `detect-secrets` thất bại:**
@@ -548,10 +548,18 @@ Khi một trong các stage gặp sự cố (`Failed` hoặc phát hiện cảnh 
    - **Khắc phục:** Đọc log chi tiết của job, sửa lỗi mã nguồn hoặc cấu hình build, sau đó commit và push lại.
 
 3. **Trường hợp Stage `dependency-check` phát hiện lỗ hổng:**
-   - **Khắc phục:** Kiểm tra bảng kết quả quét trong log job hoặc file artifact. Nâng cấp phiên bản thư viện trong file quản lý dependency (ví dụ: `package.json`, `pom.xml`, `requirements.txt`) lên phiên bản đã được vá lỗi, sau đó commit và push lại.
+   - **Khắc phục:** Kiểm tra bảng kết quả quét trong log job hoặc file artifact `result1.json`. Nâng cấp phiên bản thư viện trong file quản lý dependency (ví dụ: `package.json`, `pom.xml`, `requirements.txt`) lên phiên bản đã được vá lỗi, sau đó commit và push lại.
 
 4. **Trường hợp Stage `upload-bom` gặp sự cố:**
    - **Khắc phục:** Kiểm tra biến `$DEPENDENCY_TRACK_KEY` trong phần *Settings > CI/CD > Variables* của dự án xem đã được cấu hình chính xác quyền ghi hay chưa, kiểm tra trạng thái kết nối tới domain `https://dependency-track.dev.ftech.ai`.
 
-5. **Nguyên tắc vòng lặp (Fresh Pipeline):**
-   - Mỗi lần Developer push một commit mới, GitLab sẽ tạo ra một **Pipeline mới hoàn toàn độc lập**. Quy trình sẽ chạy lại từ đầu (từ `detect-secrets` ➔ `build` ➔ `dependency-check` ➔ `upload-bom`), đảm bảo tính toàn vẹn và an toàn tuyệt đối cho hệ thống trước khi chuyển sang các bước GitOps CD tiếp theo.
+5. **Trường hợp Stage `sonarqube-check` phát hiện lỗi hoặc Quality Gate Failed:**
+   - **Nếu không kết nối được SonarQube Server hoặc sai Token:** Kiểm tra biến `SONAR_PROJECT_KEY` và `SONAR_TOKEN` trong GitLab CI/CD Variables, đảm bảo URL `https://sonarqube.dev.ftech.ai` khả dụng.
+   - **Nếu vi phạm Quality Gate (Bugs, Vulnerabilities, Code Smells, Coverage thấp):** Truy cập trực tiếp dashboard dự án trên SonarQube Server theo đường link trong log job để xem chi tiết vị trí dòng code có vấn đề, tiến hành refactor / fix bug và bổ sung unit test, sau đó commit và push lại.
+
+6. **Trường hợp Stage `gitlabci-analyser` đưa ra cảnh báo:**
+   - **Cảnh báo Queue Time quá 30s:** Hạ tầng Runner đang bị quá tải hoặc đạt giới hạn concurrency; DevSecOps / SysAdmin cần scale thêm Runner node hoặc tối ưu lại việc phân bổ tag runner.
+   - **Cảnh báo Duration quá 300s:** Job chạy quá lâu (thường do download dependencies chậm hoặc không tận dụng cache build); Developer cần tối ưu Docker multi-stage build, tận dụng Docker Layer Cache hoặc cơ chế cache của GitLab CI.
+
+7. **Nguyên tắc vòng lặp (Fresh Pipeline):**
+   - Mỗi lần Developer push một commit mới, GitLab sẽ tạo ra một **Pipeline mới hoàn toàn độc lập**. Quy trình sẽ chạy lại từ đầu (từ `detect-secrets` ➔ `build` ➔ `dependency-check` ➔ `upload-bom` ➔ `sonarqube-check` ➔ `gitlabci-analyser`), đảm bảo tính toàn vẹn và an toàn tuyệt đối cho hệ thống trước khi chuyển sang các bước GitOps CD tiếp theo.

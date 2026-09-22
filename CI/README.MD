@@ -39,8 +39,8 @@ Variables project triển khai ci-pipeline.
 
 ```sh
   stages:
-  - build
   - detect-secrets
+  - build
   - dependency-check
   - upload-bom
   - sonarqube-check
