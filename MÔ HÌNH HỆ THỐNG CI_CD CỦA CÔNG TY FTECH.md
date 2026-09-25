@@ -524,9 +524,9 @@ Khi một trong các stage gặp sự cố (`Failed` hoặc phát hiện cảnh 
 ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
 │ Phân loại rủi ro:     │ │ Nguyên nhân:          │ │ Phân tích CVEs:       │ │ Nguyên nhân:          │ │ Chất lượng mã nguồn:  │ │ Giám sát hiệu năng:   │
 │ • Secret thật:        │ │ • Dockerfile sai      │ │ • Nâng cấp version    │ │ • Sai API Key         │ │ • Quality Gate Failed │ │ • Queue time > 30s    │
-│   - Thu hồi / rotate  │ │ • Sai user/pass Harbor│ │   thư viện trong lock │ │   DEPENDENCY_TRACK_KEY│ │   (Coverage thấp, Bug)│ │   (Cụm Runner nghẽn)│
-│   - Đưa vào CI/CD Vars│ │ • Lỗi build code      │ │ • Nếu chưa có patch:  │ │ • Lỗi kết nối mạng    │ │ • Lỗi kết nối server  │ │ • Duration > 300s   │
-│ • False Positive:     │ │ • Registry đầy bộ nhớ │ │   đánh giá mitigation │ │ • Server bảo trì      │ │   hoặc sai token      │ │   (Job bị treo/chậm)│
+│   - Thu hồi / rotate  │ │ • Sai user/pass Harbor│ │   thư viện trong lock │ │   DEPENDENCY_TRACK_KEY│ │   (Coverage thấp, Bug)│ │   (Cụm Runner nghẽn)  │
+│   - Đưa vào CI/CD Vars│ │ • Lỗi build code      │ │ • Nếu chưa có patch:  │ │ • Lỗi kết nối mạng    │ │ • Lỗi kết nối server  │ │ • Duration > 300s     │
+│ • False Positive:     │ │ • Registry đầy bộ nhớ │ │   đánh giá mitigation │ │ • Server bảo trì      │ │   hoặc sai token      │ │   (Job bị treo/chậm)  │
 │   - Thêm EXCLUDE_*    │ │                       │ │                       │ │                       │ │ • Fix code & đẩy lại  │ │ • Tối ưu pipeline   │
 └───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘ └───────────┬───────────┘
             │                         │                         │                         │                         │                         │
