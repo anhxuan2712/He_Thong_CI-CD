@@ -113,7 +113,7 @@ run-linter:
   image: golangci/golangci-lint:v1.54-alpine
   script:
     - golangci-lint run ./...
-  tags: [devsecops]
+  tags: [test]
   allow_failure: true
 
 run-unit-tests:
@@ -125,7 +125,7 @@ run-unit-tests:
     expire_in: 7 days
     paths:
       - coverage.txt
-  tags: [devsecops]
+  tags: [test]
 ```
 
 ---
@@ -228,13 +228,68 @@ build-payment-service:
 ---
 
 
-## 4. TÙY CHỌN NÂNG CAO: SỬ DỤNG CUSTOM CI CONFIG FILE PATH 
+## 4. QUY TRÌNH CẤU HÌNH KẾT NỐI DỰ ÁN TRÊN GITLAB (INTEGRATION WORKFLOW)
 
-Nếu repository của dự án có cấu trúc phức tạp hoặc muốn tách nhiều luồng CI:
-1. Truy cập GitLab Project ➔ **Settings** ➔ **CI/CD** ➔ Mở rộng mục **General pipelines**.
-2. Tại trường **CI/CD configuration file**, có thể cấu hình:
-   - File nằm trong thư mục con của repo: `.ci-configs/.special-gitlab-ci.yml`
-   - File template từ repo khác: `.special-ci.yml@gitlab-ci/ci-pipeline:main`
+Sau khi lựa chọn và chuẩn bị nội dung cấu hình CI/CD phù hợp (theo các **Mẫu 1, 2, 3, 4** ở Mục 3), thực hiện kết nối dự án theo các bước chuẩn hóa sau:
+
+---
+
+### Bước 1: Lựa chọn vị trí lưu file cấu hình CI/CD
+
+Tùy theo mô hình quản lý của dự án, bạn chọn 1 trong 2 phương án lưu trữ:
+
+* **Phương án A — Quản lý tập trung tại `gitlab-ci/ci-pipeline` (Khuyến nghị chuẩn FTECH):**
+  1. Truy cập repo trung tâm `gitlab-ci/ci-pipeline`.
+  2. Tạo thư mục theo tên dự án (ví dụ: `my-project/`).
+  3. Thêm file `.gitlab-ci.yml` vào thư mục vừa tạo và dán nội dung cấu hình đã chuẩn bị.
+  *(Phương án này giúp code repo của dự án luôn sạch sẽ và DevOps dễ quản lý tập trung).*
+
+* **Phương án B — Quản lý trực tiếp tại Repository dự án:**
+  1. Tạo file `.gitlab-ci.yml` ngay tại thư mục gốc (root) của chính repo dự án.
+  2. Dán nội dung cấu hình đã chuẩn bị vào file.
+
+---
+
+### Bước 2: Cấu hình tham chiếu CI/CD Configuration File trên GitLab
+
+1. Truy cập vào Repository của dự án trên GitLab ➔ Chọn menu **Settings** ➔ **CI/CD**.
+2. Tìm đến mục **General pipelines** và bấm nút **Expand** (Mở rộng).
+3. Tại ô **CI/CD configuration file**:
+   - **Nếu áp dụng Phương án A (Repo tập trung):** Nhập cú pháp:
+     ```text
+     <tên_folder>/.gitlab-ci.yml@gitlab-ci/ci-pipeline:main
+     ```
+     *(Ví dụ: `my-project/.gitlab-ci.yml@gitlab-ci/ci-pipeline:main`)*.
+   - **Nếu áp dụng Phương án B (File ở root repo):** Để trống trường này (mặc định GitLab sẽ tự nạp `.gitlab-ci.yml` tại root).
+4. Bấm **Save changes** (Lưu thay đổi).
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ GitLab > Project Settings > CI/CD > General pipelines                  │
+│                                                                        │
+│ CI/CD configuration file                                               │
+│ ┌────────────────────────────────────────────────────────────────────┐ │
+│ │ my-project/.gitlab-ci.yml@gitlab-ci/ci-pipeline:main               │ │
+│ └────────────────────────────────────────────────────────────────────┘ │
+│                                                                        │
+│ [ Save changes ]                                                       │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Bước 3: Cấu hình CI/CD Variables cho dự án
+
+Truy cập **Settings** ➔ **CI/CD** ➔ **Variables** ➔ Bấm **Add variable** để khai báo các thông số bắt buộc:
+
+| Tên biến (Key) | Mục đích | Bắt buộc | Ghi chú |
+| :--- | :--- | :---: | :--- |
+| `SONAR_PROJECT_KEY` | Key định danh dự án trên SonarQube | **Có** | Lấy từ SonarQube Server của FTECH |
+| `SONAR_TOKEN` | Token xác thực đẩy kết quả phân tích | **Có** | Masked variable |
+| `REGISTRY_PUSH_USER` | Tài khoản đẩy Docker image lên Registry | Tùy chọn | Nếu cần override quyền registry |
+| `REGISTRY_PUSH_PASSWORD`| Mật khẩu đẩy Docker image | Tùy chọn | Masked variable |
+| `EXCLUDE_SECRETS` | Danh sách secret giả (false positive) cần bỏ qua | Tùy chọn | Ngăn chặn fail pipeline ở stage detect-secrets |
+| `EXCLUDE_FOLDERS` | Danh sách thư mục không cần quét secret | Tùy chọn | Ngăn chặn false positive (ví dụ: `static;vendor`) |
 
 ---
 
