@@ -1,9 +1,4 @@
-# HƯỚNG DẪN CẤU HÌNH CI/CD CHO DỰ ÁN ĐẶC BIỆT (CUSTOM / SPECIAL PROJECTS)
-> **Hệ thống GitOps & CI/CD - FTECH**  
-> *Phiên bản tài liệu: 1.0*  
-> *Áp dụng cho: Tất cả các dự án phát triển phần mềm có yêu cầu cấu hình CI/CD tùy biến.*
-
----
+# KỊCH BẢN CẤU HÌNH CI CHO DỰ ÁN ĐẶC BIỆT 
 
 ## 1. TỔNG QUAN & NGUYÊN TẮC THIẾT KẾ
 
@@ -120,7 +115,7 @@ run-unit-tests:
   stage: test
   image: golang:1.21-alpine
   script:
-    - go test -v -race -coverprofile=coverage.txt ./...
+    - go test -v -coverprofile=coverage.txt ./...
   artifacts:
     expire_in: 7 days
     paths:
@@ -288,8 +283,6 @@ Truy cập **Settings** ➔ **CI/CD** ➔ **Variables** ➔ Bấm **Add variable
 | `SONAR_TOKEN` | Token xác thực đẩy kết quả phân tích | **Có** | Masked variable |
 | `REGISTRY_PUSH_USER` | Tài khoản đẩy Docker image lên Registry | Tùy chọn | Nếu cần override quyền registry |
 | `REGISTRY_PUSH_PASSWORD`| Mật khẩu đẩy Docker image | Tùy chọn | Masked variable |
-| `EXCLUDE_SECRETS` | Danh sách secret giả (false positive) cần bỏ qua | Tùy chọn | Ngăn chặn fail pipeline ở stage detect-secrets |
-| `EXCLUDE_FOLDERS` | Danh sách thư mục không cần quét secret | Tùy chọn | Ngăn chặn false positive (ví dụ: `static;vendor`) |
 
 ---
 
