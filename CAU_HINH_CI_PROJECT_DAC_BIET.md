@@ -225,37 +225,34 @@ build-payment-service:
 
 ## 4. QUY TRÌNH CẤU HÌNH KẾT NỐI DỰ ÁN TRÊN GITLAB (INTEGRATION WORKFLOW)
 
-Sau khi lựa chọn và chuẩn bị nội dung cấu hình CI/CD phù hợp (theo các **Mẫu 1, 2, 3, 4** ở Mục 3), thực hiện kết nối dự án theo các bước chuẩn hóa sau:
+Sau khi lựa chọn và chuẩn bị nội dung cấu hình CI/CD phù hợp (theo các **Mẫu 1, 2, 3, 4** ở Mục 3), thực hiện kết nối dự án với hệ thống CI/CD tập trung theo các bước sau:
 
 ---
 
-### Bước 1: Lựa chọn vị trí lưu file cấu hình CI/CD
+### Bước 1: Lưu file cấu hình vào repository CI/CD tập trung
 
-Tùy theo mô hình quản lý của dự án, bạn chọn 1 trong 2 phương án lưu trữ:
+Theo tiêu chuẩn quản lý CI/CD tập trung tại FTECH, cấu hình pipeline của dự án sẽ được lưu trữ và quản trị tại repo trung tâm `gitlab-ci/ci-pipeline`:
 
-* **Phương án A — Quản lý tập trung tại `gitlab-ci/ci-pipeline` (Khuyến nghị chuẩn FTECH):**
-  1. Truy cập repo trung tâm `gitlab-ci/ci-pipeline`.
-  2. Tạo thư mục theo tên dự án (ví dụ: `my-project/`).
-  3. Thêm file `.gitlab-ci.yml` vào thư mục vừa tạo và dán nội dung cấu hình đã chuẩn bị.
-  *(Phương án này giúp code repo của dự án luôn sạch sẽ và DevOps dễ quản lý tập trung).*
+1. Truy cập vào repository `gitlab-ci/ci-pipeline`.
+2. Tạo một thư mục mới đặt theo tên của dự án (ví dụ: `my-project/`).
+3. Tạo file `.gitlab-ci.yml` bên trong thư mục vừa tạo (đường dẫn dạng: `my-project/.gitlab-ci.yml`).
+4. Dán toàn bộ nội dung cấu hình YAML đã chuẩn bị vào file này và thực hiện commit lên nhánh `main`.
 
-* **Phương án B — Quản lý trực tiếp tại Repository dự án:**
-  1. Tạo file `.gitlab-ci.yml` ngay tại thư mục gốc (root) của chính repo dự án.
-  2. Dán nội dung cấu hình đã chuẩn bị vào file.
+*(Cách làm này giúp source code của dự án luôn gọn gàng, đồng thời DevOps có thể chủ động quản trị, cập nhật và kiểm soát tập trung toàn bộ pipeline).*
 
 ---
 
-### Bước 2: Cấu hình tham chiếu CI/CD Configuration File trên GitLab
+### Bước 2: Cấu hình tham chiếu file CI/CD trên Repository của dự án
 
-1. Truy cập vào Repository của dự án trên GitLab ➔ Chọn menu **Settings** ➔ **CI/CD**.
+Để GitLab Runner tại repository dự án biết và nạp file cấu hình từ repo tập trung:
+
+1. Truy cập vào repository mã nguồn của dự án trên GitLab ➔ Chọn menu **Settings** ➔ **CI/CD**.
 2. Tìm đến mục **General pipelines** và bấm nút **Expand** (Mở rộng).
-3. Tại ô **CI/CD configuration file**:
-   - **Nếu áp dụng Phương án A (Repo tập trung):** Nhập cú pháp:
-     ```text
-     <tên_folder>/.gitlab-ci.yml@gitlab-ci/ci-pipeline:main
-     ```
-     *(Ví dụ: `my-project/.gitlab-ci.yml@gitlab-ci/ci-pipeline:main`)*.
-   - **Nếu áp dụng Phương án B (File ở root repo):** Để trống trường này (mặc định GitLab sẽ tự nạp `.gitlab-ci.yml` tại root).
+3. Tại ô **CI/CD configuration file**, nhập đường dẫn trỏ về file cấu hình trong repo tập trung theo cú pháp:
+   ```text
+   <tên_thu_mục>/.gitlab-ci.yml@gitlab-ci/ci-pipeline:main
+   ```
+   *(Ví dụ: `my-project/.gitlab-ci.yml@gitlab-ci/ci-pipeline:main`)*
 4. Bấm **Save changes** (Lưu thay đổi).
 
 ```
@@ -273,22 +270,16 @@ Tùy theo mô hình quản lý của dự án, bạn chọn 1 trong 2 phương �
 
 ---
 
-### Bước 3: Cấu hình CI/CD Variables cho dự án
+### Bước 3: Khai báo CI/CD Variables cho dự án
 
-Truy cập **Settings** ➔ **CI/CD** ➔ **Variables** ➔ Bấm **Add variable** để khai báo các thông số bắt buộc:
+Các thông tin nhạy cảm (token xác thực, mật khẩu, tài khoản) tuyệt đối không được viết trực tiếp vào mã nguồn hay file `.gitlab-ci.yml`. Thay vào đó, cần khai báo trong mục CI/CD Variables của dự án để pipeline tự động nạp an toàn khi thực thi:
 
-| Tên biến (Key) | Mục đích | Bắt buộc | Ghi chú |
+- **Thao tác:** Truy cập **Settings** ➔ **CI/CD** ➔ **Variables** ➔ Bấm **Add variable** để khai báo các biến cần thiết sau:
+
+| Tên biến (Key) | Ý nghĩa & Mục đích sử dụng | Bắt buộc | Cài đặt bảo mật |
 | :--- | :--- | :---: | :--- |
-| `SONAR_PROJECT_KEY` | Key định danh dự án trên SonarQube | **Có** | Lấy từ SonarQube Server của FTECH |
-| `SONAR_TOKEN` | Token xác thực đẩy kết quả phân tích | **Có** | Masked variable |
-| `REGISTRY_PUSH_USER` | Tài khoản đẩy Docker image lên Registry | Tùy chọn | Nếu cần override quyền registry |
-| `REGISTRY_PUSH_PASSWORD`| Mật khẩu đẩy Docker image | Tùy chọn | Masked variable |
+| `SONAR_PROJECT_KEY` | **Mã định danh dự án trên SonarQube:** Giúp job `sonarqube-check` định tuyến và gửi kết quả phân tích chất lượng code (Code Smells, Bugs, Security Vulnerabilities) vào đúng Dashboard dự án trên SonarQube Server. | **Có** | Không cần Masked (Lấy Project Key từ SonarQube FTECH) |
+| `SONAR_TOKEN` | **Token xác thực SonarQube:** Dùng để chứng thực quyền gửi dữ liệu phân tích từ Runner lên máy chủ SonarQube. | **Có** | Bật **Mask variable** |
+| `REGISTRY_PUSH_USER` | **Tài khoản đăng nhập Container Registry:** Sử dụng khi dự án cần phân quyền riêng để đẩy (push) Docker Image lên Harbor/Registry nội bộ. | **Có** | Không cần Masked |
+| `REGISTRY_PUSH_PASSWORD` | **Mật khẩu/Secret Token Registry:** Dùng kèm với `REGISTRY_PUSH_USER` để xác thực quyền ghi (push) image lên kho lưu trữ Docker. | **Có** | Bật **Mask variable** |
 
----
-
-## 5. CHECKLIST KIỂM TRA TRƯỚC KHI GOLIVE CI/CD
-
-- [ ] File `.gitlab-ci.yml` đã include tối thiểu module `devsecops/devsecops-template.yml`.
-- [ ] Runner Tags được gắn chính xác: `[devsecops]` cho scan/test, `[build]` cho build Docker.
-- [ ] Các thông tin mật (API Keys, Passwords) đã được đưa vào **CI/CD Variables** (không commit cứng vào code).
-- [ ] Đã kiểm tra pipeline chạy thành công qua toàn bộ các stage mà không bị block lỗi secret hay SBOM.
